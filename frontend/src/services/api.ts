@@ -9,9 +9,23 @@ import type {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api'
 
 // For static deployment (Cloudflare Pages), use RunPod API directly
-const USE_RUNPOD_DIRECT = process.env.NODE_ENV === 'production' && !API_BASE_URL.includes('/api')
+// Check if we're in a static environment where API routes don't exist
+const USE_RUNPOD_DIRECT = typeof window !== 'undefined' && (
+  process.env.NODE_ENV === 'production' || 
+  !API_BASE_URL.includes('/api') ||
+  process.env.NEXT_PUBLIC_RUNPOD_API_KEY // If public keys are set, use direct mode
+)
+
 const RUNPOD_API_KEY = process.env.NEXT_PUBLIC_RUNPOD_API_KEY
 const RUNPOD_ENDPOINT_ID = process.env.NEXT_PUBLIC_RUNPOD_ENDPOINT_ID
+
+console.log('API Configuration:', {
+  USE_RUNPOD_DIRECT,
+  hasRunPodKey: !!RUNPOD_API_KEY,
+  hasEndpointId: !!RUNPOD_ENDPOINT_ID,
+  API_BASE_URL,
+  NODE_ENV: process.env.NODE_ENV
+})
 
 // Create axios instance
 const api = axios.create({
@@ -43,8 +57,10 @@ api.interceptors.response.use(
 
 // Direct RunPod API call
 async function callRunPodAPI(taskType: string, params: any): Promise<GeneratedImage[]> {
+  console.log('Calling RunPod API directly:', { taskType, hasKey: !!RUNPOD_API_KEY, hasEndpoint: !!RUNPOD_ENDPOINT_ID })
+  
   if (!RUNPOD_API_KEY || !RUNPOD_ENDPOINT_ID) {
-    throw new Error('RunPod configuration not available')
+    throw new Error('RunPod configuration not available. Please check environment variables.')
   }
 
   const RUNPOD_API_URL = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/runsync`
@@ -56,6 +72,8 @@ async function callRunPodAPI(taskType: string, params: any): Promise<GeneratedIm
     }
   }
 
+  console.log('RunPod request:', { url: RUNPOD_API_URL, request: runpodRequest })
+
   const response = await axios.post(RUNPOD_API_URL, runpodRequest, {
     headers: {
       'Authorization': `Bearer ${RUNPOD_API_KEY}`,
@@ -63,6 +81,8 @@ async function callRunPodAPI(taskType: string, params: any): Promise<GeneratedIm
     },
     timeout: 300000,
   })
+
+  console.log('RunPod response:', response.data)
 
   if (response.data.status === 'COMPLETED') {
     const output = response.data.output
@@ -79,6 +99,8 @@ async function callRunPodAPI(taskType: string, params: any): Promise<GeneratedIm
 // Generate text-to-image
 export async function generateTextToImage(params: TextToImageParams): Promise<GeneratedImage[]> {
   try {
+    console.log('generateTextToImage called with USE_RUNPOD_DIRECT:', USE_RUNPOD_DIRECT)
+    
     if (USE_RUNPOD_DIRECT) {
       return await callRunPodAPI('text-to-image', params)
     }
@@ -99,6 +121,8 @@ export async function generateTextToImage(params: TextToImageParams): Promise<Ge
 // Generate image-to-image
 export async function generateImageToImage(params: ImageToImageParams): Promise<GeneratedImage[]> {
   try {
+    console.log('generateImageToImage called with USE_RUNPOD_DIRECT:', USE_RUNPOD_DIRECT)
+    
     if (USE_RUNPOD_DIRECT) {
       // Convert image to base64 for RunPod API
       let base64Image = ''
