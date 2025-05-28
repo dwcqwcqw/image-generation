@@ -103,12 +103,10 @@ async function callRunPodAPI(taskType: string, params: any, signal?: AbortSignal
 export async function generateTextToImage(params: TextToImageParams, signal?: AbortSignal): Promise<GeneratedImage[]> {
   try {
     console.log('generateTextToImage called with USE_RUNPOD_DIRECT:', USE_RUNPOD_DIRECT)
+    console.log('Requested LoRA model:', params.lora_model)
     
-    // Switch LoRA model before generation if specified
-    if (params.lora_model) {
-      console.log('Switching to LoRA model before generation:', params.lora_model)
-      await switchLoraModel(params.lora_model, signal)
-    }
+    // 优化：不在前端进行LoRA切换，让后端自动处理
+    // 后端会检查并只在需要时进行切换
     
     if (USE_RUNPOD_DIRECT) {
       return await callRunPodAPI('text-to-image', params, signal)
@@ -133,12 +131,10 @@ export async function generateTextToImage(params: TextToImageParams, signal?: Ab
 export async function generateImageToImage(params: ImageToImageParams, signal?: AbortSignal): Promise<GeneratedImage[]> {
   try {
     console.log('generateImageToImage called with USE_RUNPOD_DIRECT:', USE_RUNPOD_DIRECT)
+    console.log('Requested LoRA model:', params.lora_model)
     
-    // Switch LoRA model before generation if specified
-    if (params.lora_model) {
-      console.log('Switching to LoRA model before generation:', params.lora_model)
-      await switchLoraModel(params.lora_model, signal)
-    }
+    // 优化：不在前端进行LoRA切换，让后端自动处理
+    // 后端会检查并只在需要时进行切换
     
     if (USE_RUNPOD_DIRECT) {
       // Convert image to base64 for RunPod API
@@ -166,6 +162,7 @@ export async function generateImageToImage(params: ImageToImageParams, signal?: 
         seed: params.seed,
         numImages: params.numImages,
         denoisingStrength: params.denoisingStrength,
+        lora_model: params.lora_model, // 传递LoRA模型参数给后端
       }
 
       return await callRunPodAPI('image-to-image', runpodParams, signal)

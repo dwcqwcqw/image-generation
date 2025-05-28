@@ -144,6 +144,10 @@ def load_models():
 def upload_to_r2(image_data: bytes, filename: str) -> str:
     """上传图片到 Cloudflare R2"""
     try:
+        # 确保 image_data 是 bytes 类型
+        if not isinstance(image_data, bytes):
+            raise TypeError(f"Expected bytes, got {type(image_data)}")
+            
         r2_client.put_object(
             Bucket=CLOUDFLARE_R2_BUCKET,
             Key=filename,
@@ -158,13 +162,22 @@ def upload_to_r2(image_data: bytes, filename: str) -> str:
         
     except Exception as e:
         print(f"Error uploading to R2: {str(e)}")
+        print(f"Image data type: {type(image_data)}, size: {len(image_data) if hasattr(image_data, '__len__') else 'unknown'}")
         raise e
 
 def image_to_bytes(image: Image.Image) -> bytes:
     """将 PIL Image 转换为字节"""
-    buffer = io.BytesIO()
-    image.save(buffer, format='PNG', quality=95)
-    return buffer.getvalue()
+    try:
+        buffer = io.BytesIO()
+        # 确保图像是RGB模式
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        image.save(buffer, format='PNG', quality=95, optimize=True)
+        buffer.seek(0)  # 重置buffer位置
+        return buffer.getvalue()
+    except Exception as e:
+        print(f"Error converting image to bytes: {str(e)}")
+        raise e
 
 def base64_to_image(base64_str: str) -> Image.Image:
     """将 base64 字符串转换为 PIL Image"""
@@ -176,7 +189,7 @@ def base64_to_image(base64_str: str) -> Image.Image:
     return image.convert('RGB')
 
 def text_to_image(params: dict) -> list:
-    """文生图生成"""
+    """文生图生成 - 优化版本"""
     global txt2img_pipe
     
     if txt2img_pipe is None:
@@ -200,8 +213,10 @@ def text_to_image(params: dict) -> list:
     
     results = []
     
-    for i in range(num_images):
+    # 优化：批量生成时一次性生成所有图片，而不是循环
+    if num_images > 1 and num_images <= 4:  # 限制批量大小避免内存问题
         try:
+            print(f"Batch generating {num_images} images...")
             # 生成图像
             with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
                 result = txt2img_pipe(
@@ -212,47 +227,108 @@ def text_to_image(params: dict) -> list:
                     num_inference_steps=steps,
                     guidance_scale=cfg_scale,
                     generator=generator,
-                    num_images_per_prompt=1
+                    num_images_per_prompt=num_images
                 )
             
-            image = result.images[0]
-            
-            # 上传到 R2
-            image_id = str(uuid.uuid4())
-            filename = f"generated/{image_id}.png"
-            image_bytes = image_to_bytes(image)
-            image_url = upload_to_r2(image_bytes, filename)
-            
-            # 创建结果对象
-            image_data = {
-                'id': image_id,
-                'url': image_url,
-                'prompt': prompt,
-                'negativePrompt': negative_prompt,
-                'seed': seed,
-                'width': width,
-                'height': height,
-                'steps': steps,
-                'cfgScale': cfg_scale,
-                'createdAt': datetime.utcnow().isoformat(),
-                'type': 'text-to-image'
-            }
-            
-            results.append(image_data)
-            
-            # 为下一张图片更新种子
-            if i < num_images - 1:
-                seed += 1
-                generator = torch.Generator(device=txt2img_pipe.device).manual_seed(seed)
-                
+            # 处理批量生成的图片
+            for i, image in enumerate(result.images):
+                try:
+                    # 上传到 R2
+                    image_id = str(uuid.uuid4())
+                    filename = f"generated/{image_id}.png"
+                    image_bytes = image_to_bytes(image)
+                    image_url = upload_to_r2(image_bytes, filename)
+                    
+                    # 创建结果对象
+                    image_data = {
+                        'id': image_id,
+                        'url': image_url,
+                        'prompt': prompt,
+                        'negativePrompt': negative_prompt,
+                        'seed': seed + i,  # 每张图片不同的种子
+                        'width': width,
+                        'height': height,
+                        'steps': steps,
+                        'cfgScale': cfg_scale,
+                        'createdAt': datetime.utcnow().isoformat(),
+                        'type': 'text-to-image'
+                    }
+                    
+                    results.append(image_data)
+                    
+                except Exception as e:
+                    print(f"Error processing batch image {i+1}: {str(e)}")
+                    continue
+                    
         except Exception as e:
-            print(f"Error generating image {i+1}: {str(e)}")
-            continue
+            print(f"Batch generation failed, falling back to individual generation: {str(e)}")
+            # 如果批量生成失败，回退到单张生成
+            num_images = min(num_images, 1)
+    
+    # 单张生成或批量生成失败的回退
+    if len(results) == 0:
+        for i in range(num_images):
+            try:
+                print(f"Generating image {i+1}/{num_images}...")
+                # 生成图像
+                with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
+                    # 优化：清理GPU缓存
+                    if torch.cuda.is_available() and i > 0:
+                        torch.cuda.empty_cache()
+                        
+                    result = txt2img_pipe(
+                        prompt=prompt,
+                        negative_prompt=negative_prompt,
+                        width=width,
+                        height=height,
+                        num_inference_steps=steps,
+                        guidance_scale=cfg_scale,
+                        generator=generator,
+                        num_images_per_prompt=1
+                    )
+                
+                image = result.images[0]
+                
+                # 上传到 R2
+                image_id = str(uuid.uuid4())
+                filename = f"generated/{image_id}.png"
+                image_bytes = image_to_bytes(image)
+                image_url = upload_to_r2(image_bytes, filename)
+                
+                # 创建结果对象
+                image_data = {
+                    'id': image_id,
+                    'url': image_url,
+                    'prompt': prompt,
+                    'negativePrompt': negative_prompt,
+                    'seed': seed,
+                    'width': width,
+                    'height': height,
+                    'steps': steps,
+                    'cfgScale': cfg_scale,
+                    'createdAt': datetime.utcnow().isoformat(),
+                    'type': 'text-to-image'
+                }
+                
+                results.append(image_data)
+                
+                # 为下一张图片更新种子
+                if i < num_images - 1:
+                    seed += 1
+                    generator = torch.Generator(device=txt2img_pipe.device).manual_seed(seed)
+                    
+            except Exception as e:
+                print(f"Error generating image {i+1}: {str(e)}")
+                continue
+    
+    # 优化：最终清理GPU缓存
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     
     return results
 
 def image_to_image(params: dict) -> list:
-    """图生图生成"""
+    """图生图生成 - 优化版本"""
     global img2img_pipe
     
     if img2img_pipe is None:
@@ -287,8 +363,10 @@ def image_to_image(params: dict) -> list:
     
     results = []
     
-    for i in range(num_images):
+    # 优化：批量生成时一次性生成所有图片
+    if num_images > 1 and num_images <= 4:  # 限制批量大小避免内存问题
         try:
+            print(f"Batch generating {num_images} images for img2img...")
             # 生成图像
             with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
                 result = img2img_pipe(
@@ -299,43 +377,105 @@ def image_to_image(params: dict) -> list:
                     num_inference_steps=steps,
                     guidance_scale=cfg_scale,
                     generator=generator,
-                    num_images_per_prompt=1
+                    num_images_per_prompt=num_images
                 )
             
-            image = result.images[0]
-            
-            # 上传到 R2
-            image_id = str(uuid.uuid4())
-            filename = f"generated/{image_id}.png"
-            image_bytes = image_to_bytes(image)
-            image_url = upload_to_r2(image_bytes, filename)
-            
-            # 创建结果对象
-            image_data = {
-                'id': image_id,
-                'url': image_url,
-                'prompt': prompt,
-                'negativePrompt': negative_prompt,
-                'seed': seed,
-                'width': width,
-                'height': height,
-                'steps': steps,
-                'cfgScale': cfg_scale,
-                'createdAt': datetime.utcnow().isoformat(),
-                'type': 'image-to-image',
-                'denoisingStrength': denoising_strength
-            }
-            
-            results.append(image_data)
-            
-            # 为下一张图片更新种子
-            if i < num_images - 1:
-                seed += 1
-                generator = torch.Generator(device=img2img_pipe.device).manual_seed(seed)
-                
+            # 处理批量生成的图片
+            for i, image in enumerate(result.images):
+                try:
+                    # 上传到 R2
+                    image_id = str(uuid.uuid4())
+                    filename = f"generated/{image_id}.png"
+                    image_bytes = image_to_bytes(image)
+                    image_url = upload_to_r2(image_bytes, filename)
+                    
+                    # 创建结果对象
+                    image_data = {
+                        'id': image_id,
+                        'url': image_url,
+                        'prompt': prompt,
+                        'negativePrompt': negative_prompt,
+                        'seed': seed + i,
+                        'width': width,
+                        'height': height,
+                        'steps': steps,
+                        'cfgScale': cfg_scale,
+                        'createdAt': datetime.utcnow().isoformat(),
+                        'type': 'image-to-image',
+                        'denoisingStrength': denoising_strength
+                    }
+                    
+                    results.append(image_data)
+                    
+                except Exception as e:
+                    print(f"Error processing batch img2img image {i+1}: {str(e)}")
+                    continue
+                    
         except Exception as e:
-            print(f"Error generating image {i+1}: {str(e)}")
-            continue
+            print(f"Batch img2img generation failed, falling back to individual generation: {str(e)}")
+            # 如果批量生成失败，回退到单张生成
+            num_images = min(num_images, 1)
+    
+    # 单张生成或批量生成失败的回退
+    if len(results) == 0:
+        for i in range(num_images):
+            try:
+                print(f"Generating img2img image {i+1}/{num_images}...")
+                # 生成图像
+                with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
+                    # 优化：清理GPU缓存
+                    if torch.cuda.is_available() and i > 0:
+                        torch.cuda.empty_cache()
+                        
+                    result = img2img_pipe(
+                        prompt=prompt,
+                        negative_prompt=negative_prompt,
+                        image=source_image,
+                        strength=denoising_strength,
+                        num_inference_steps=steps,
+                        guidance_scale=cfg_scale,
+                        generator=generator,
+                        num_images_per_prompt=1
+                    )
+                
+                image = result.images[0]
+                
+                # 上传到 R2
+                image_id = str(uuid.uuid4())
+                filename = f"generated/{image_id}.png"
+                image_bytes = image_to_bytes(image)
+                image_url = upload_to_r2(image_bytes, filename)
+                
+                # 创建结果对象
+                image_data = {
+                    'id': image_id,
+                    'url': image_url,
+                    'prompt': prompt,
+                    'negativePrompt': negative_prompt,
+                    'seed': seed,
+                    'width': width,
+                    'height': height,
+                    'steps': steps,
+                    'cfgScale': cfg_scale,
+                    'createdAt': datetime.utcnow().isoformat(),
+                    'type': 'image-to-image',
+                    'denoisingStrength': denoising_strength
+                }
+                
+                results.append(image_data)
+                
+                # 为下一张图片更新种子
+                if i < num_images - 1:
+                    seed += 1
+                    generator = torch.Generator(device=img2img_pipe.device).manual_seed(seed)
+                    
+            except Exception as e:
+                print(f"Error generating img2img image {i+1}: {str(e)}")
+                continue
+    
+    # 优化：最终清理GPU缓存
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     
     return results
 
@@ -352,7 +492,7 @@ def get_available_loras() -> dict:
     return available
 
 def switch_lora(lora_id: str) -> bool:
-    """切换LoRA模型"""
+    """切换LoRA模型 - 优化版本"""
     global txt2img_pipe, img2img_pipe, current_lora
     
     if lora_id not in AVAILABLE_LORAS:
@@ -364,12 +504,13 @@ def switch_lora(lora_id: str) -> bool:
     if not os.path.exists(lora_path):
         raise ValueError(f"LoRA model not found: {lora_info['name']} at {lora_path}")
     
+    # 优化：如果已经是当前LoRA，直接返回，避免不必要的重新加载
     if lora_id == current_lora:
-        print(f"LoRA {lora_info['name']} is already loaded")
+        print(f"LoRA {lora_info['name']} is already loaded - skipping switch")
         return True
     
     try:
-        print(f"Switching to LoRA: {lora_info['name']}")
+        print(f"Switching LoRA from {AVAILABLE_LORAS[current_lora]['name']} to {lora_info['name']}")
         
         # 卸载当前LoRA
         txt2img_pipe.unload_lora_weights()
@@ -390,12 +531,13 @@ def switch_lora(lora_id: str) -> bool:
             previous_lora_path = AVAILABLE_LORAS[current_lora]["path"]
             txt2img_pipe.unload_lora_weights()
             txt2img_pipe.load_lora_weights(previous_lora_path)
-        except:
-            pass
+            print(f"Recovered to previous LoRA: {AVAILABLE_LORAS[current_lora]['name']}")
+        except Exception as recovery_error:
+            print(f"Failed to recover LoRA: {recovery_error}")
         raise RuntimeError(f"Failed to switch LoRA model: {str(e)}")
 
 def handler(job):
-    """RunPod 处理函数"""
+    """RunPod 处理函数 - 优化版本"""
     try:
         job_input = job['input']
         task_type = job_input.get('task_type')
@@ -420,6 +562,16 @@ def handler(job):
                     'error': 'lora_id is required'
                 }
             
+            # 优化：检查是否需要实际切换
+            if lora_id == current_lora:
+                return {
+                    'success': True,
+                    'data': {
+                        'current_lora': current_lora,
+                        'message': f'{AVAILABLE_LORAS[current_lora]["name"]} is already active'
+                    }
+                }
+            
             switch_lora(lora_id)
             return {
                 'success': True,
@@ -430,12 +582,12 @@ def handler(job):
             }
         
         elif task_type == 'text-to-image':
-            # 检查是否需要切换LoRA
+            # 优化：只在需要时切换LoRA
             params = job_input.get('params', {})
             requested_lora = params.get('lora_model', current_lora)
             
-            if requested_lora != current_lora:
-                print(f"Switching LoRA from {current_lora} to {requested_lora}")
+            if requested_lora and requested_lora != current_lora:
+                print(f"Auto-switching LoRA from {current_lora} to {requested_lora} for generation")
                 switch_lora(requested_lora)
             
             results = text_to_image(params)
@@ -445,12 +597,12 @@ def handler(job):
             }
             
         elif task_type == 'image-to-image':
-            # 检查是否需要切换LoRA
+            # 优化：只在需要时切换LoRA
             params = job_input.get('params', {})
             requested_lora = params.get('lora_model', current_lora)
             
-            if requested_lora != current_lora:
-                print(f"Switching LoRA from {current_lora} to {requested_lora}")
+            if requested_lora and requested_lora != current_lora:
+                print(f"Auto-switching LoRA from {current_lora} to {requested_lora} for generation")
                 switch_lora(requested_lora)
             
             results = image_to_image(params)
