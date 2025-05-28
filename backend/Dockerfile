@@ -1,19 +1,40 @@
-# Use NVIDIA CUDA base image with PyTorch - 使用确实存在的RunPod镜像版本
-FROM runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel
+# Use NVIDIA official CUDA base image - 使用确实存在的NVIDIA官方镜像
+FROM nvidia/cuda:11.8-devel-ubuntu22.04
 
 # Set working directory
 WORKDIR /app
 
-# Install only essential system dependencies
+# Set environment variables to prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV CUDA_VISIBLE_DEVICES=0
+ENV HF_HOME=/tmp/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/tmp/.cache/transformers
+
+# Install system dependencies including Python 3.10
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git wget curl libgl1-mesa-glx libglib2.0-0 \
+    python3.10 \
+    python3.10-dev \
+    python3.10-distutils \
+    python3-pip \
+    git \
+    wget \
+    curl \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    build-essential \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Copy and install Python dependencies
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip cache purge
+# Create symbolic links for python
+RUN ln -sf /usr/bin/python3.10 /usr/bin/python3 && \
+    ln -sf /usr/bin/python3.10 /usr/bin/python
+
+# Upgrade pip
+RUN python3 -m pip install --upgrade pip
+
+# Copy and run installation script
+COPY backend/install_requirements.sh .
+RUN chmod +x install_requirements.sh && ./install_requirements.sh
 
 # Copy application code
 COPY backend/handler.py .
@@ -23,12 +44,6 @@ COPY backend/.env* ./
 
 # Create model directory
 RUN mkdir -p /runpod-volume
-
-# Set environment variables for optimization
-ENV PYTHONUNBUFFERED=1
-ENV CUDA_VISIBLE_DEVICES=0
-ENV HF_HOME=/tmp/.cache/huggingface
-ENV TRANSFORMERS_CACHE=/tmp/.cache/transformers
 
 # Set Cloudflare R2 environment variables
 ENV CLOUDFLARE_R2_ACCESS_KEY=5885b29961ce9fc2b593139d9de52f81
