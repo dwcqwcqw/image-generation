@@ -126,20 +126,32 @@ def load_models():
             "low_cpu_mem_usage": True,  # 低CPU内存使用
         }
         
-        # 尝试使用设备映射优化
+        # 尝试使用设备映射优化 - 修复兼容性问题
         if device == "cuda":
             try:
-                model_kwargs.update({
-                    "device_map": "auto",  # 自动设备映射
-                })
-                print("✅ Auto device mapping enabled")
-            except:
-                print("⚠️  Auto device mapping not supported, using manual placement")
-        
-        txt2img_pipe = FluxPipeline.from_pretrained(
-            FLUX_BASE_PATH,
-            **model_kwargs
-        )
+                # 先尝试 "balanced" 策略
+                model_kwargs_with_device_map = model_kwargs.copy()
+                model_kwargs_with_device_map["device_map"] = "balanced"
+                
+                txt2img_pipe = FluxPipeline.from_pretrained(
+                    FLUX_BASE_PATH,
+                    **model_kwargs_with_device_map
+                )
+                print("✅ Device mapping enabled with 'balanced' strategy")
+                
+            except Exception as device_map_error:
+                print(f"⚠️  Device mapping failed ({device_map_error}), loading without device mapping")
+                # 回退到不使用设备映射
+                txt2img_pipe = FluxPipeline.from_pretrained(
+                    FLUX_BASE_PATH,
+                    **model_kwargs
+                )
+        else:
+            # CPU模式直接加载
+            txt2img_pipe = FluxPipeline.from_pretrained(
+                FLUX_BASE_PATH,
+                **model_kwargs
+            )
         
         loading_time = (datetime.now() - start_time).total_seconds()
         print(f"⏱️  Base model loaded in {loading_time:.2f}s")
