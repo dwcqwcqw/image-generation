@@ -66,10 +66,21 @@ def load_models():
         # 加载 LoRA 权重
         if os.path.exists(FLUX_LORA_PATH):
             print(f"Loading LoRA weights from {FLUX_LORA_PATH}")
-            txt2img_pipe.load_lora_weights(FLUX_LORA_PATH)
-            print("Loaded LoRA weights")
+            try:
+                txt2img_pipe.load_lora_weights(FLUX_LORA_PATH)
+                print("Loaded LoRA weights successfully")
+            except ValueError as e:
+                if "PEFT backend is required" in str(e):
+                    print("Warning: PEFT backend not available, skipping LoRA weights loading")
+                    print("Install peft library for LoRA support: pip install peft")
+                else:
+                    print(f"Warning: Failed to load LoRA weights: {e}")
+            except Exception as e:
+                print(f"Warning: Failed to load LoRA weights: {e}")
+                print("Continuing without LoRA weights...")
         else:
             print(f"Warning: LoRA weights not found at {FLUX_LORA_PATH}")
+            print("Model will work without LoRA weights")
         
         print("Moving pipeline to device...")
         txt2img_pipe = txt2img_pipe.to(device)
