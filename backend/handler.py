@@ -35,6 +35,13 @@ r2_client = boto3.client(
 txt2img_pipe = None
 img2img_pipe = None
 
+def get_device():
+    """获取设备，兼容不同PyTorch版本"""
+    if torch.cuda.is_available():
+        return "cuda"
+    else:
+        return "cpu"
+
 def load_models():
     """加载 FLUX 模型"""
     global txt2img_pipe, img2img_pipe
@@ -42,11 +49,12 @@ def load_models():
     print("Loading FLUX models...")
     
     # 检查 CUDA 可用性
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = get_device()
     print(f"Using device: {device}")
     
     try:
-        # 加载文生图模型
+        # 加载文生图模型，增加错误处理
+        print("Loading text-to-image pipeline...")
         txt2img_pipe = FluxPipeline.from_pretrained(
             FLUX_BASE_PATH,
             torch_dtype=torch.float16 if device == "cuda" else torch.float32,
@@ -57,14 +65,17 @@ def load_models():
         
         # 加载 LoRA 权重
         if os.path.exists(FLUX_LORA_PATH):
+            print(f"Loading LoRA weights from {FLUX_LORA_PATH}")
             txt2img_pipe.load_lora_weights(FLUX_LORA_PATH)
             print("Loaded LoRA weights")
         else:
             print(f"Warning: LoRA weights not found at {FLUX_LORA_PATH}")
         
+        print("Moving pipeline to device...")
         txt2img_pipe = txt2img_pipe.to(device)
         
         # 加载图生图模型 (共享组件)
+        print("Creating image-to-image pipeline...")
         img2img_pipe = FluxImg2ImgPipeline(
             vae=txt2img_pipe.vae,
             text_encoder=txt2img_pipe.text_encoder,
@@ -80,6 +91,8 @@ def load_models():
         
     except Exception as e:
         print(f"Error loading models: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise e
 
 def upload_to_r2(image_data: bytes, filename: str) -> str:
@@ -308,6 +321,8 @@ def handler(job):
             
     except Exception as e:
         print(f"Handler error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {
             'success': False,
             'error': str(e)
@@ -315,9 +330,16 @@ def handler(job):
 
 if __name__ == "__main__":
     # 在启动时加载模型
-    load_models()
-    
-    # 启动 RunPod serverless
-    runpod.serverless.start({
-        "handler": handler
-    }) 
+    try:
+        load_models()
+        print("Starting RunPod serverless...")
+        
+        # 启动 RunPod serverless
+        runpod.serverless.start({
+            "handler": handler
+        })
+    except Exception as e:
+        print(f"Failed to start serverless: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise e 
