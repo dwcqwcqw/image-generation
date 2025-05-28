@@ -10,11 +10,13 @@ import type {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api'
 
 // For static deployment (Cloudflare Pages), use RunPod API directly
-// Check if we're in a static environment where API routes don't exist
-const USE_RUNPOD_DIRECT = typeof window !== 'undefined' && (
-  process.env.NODE_ENV === 'production' || 
-  !API_BASE_URL.includes('/api') ||
-  process.env.NEXT_PUBLIC_RUNPOD_API_KEY // If public keys are set, use direct mode
+// In production mode, if we have RunPod credentials, use direct calls
+const USE_RUNPOD_DIRECT = Boolean(
+  (process.env.NODE_ENV === 'production' && 
+   process.env.NEXT_PUBLIC_RUNPOD_API_KEY && 
+   process.env.NEXT_PUBLIC_RUNPOD_ENDPOINT_ID) ||
+  (typeof window !== 'undefined' && 
+   !API_BASE_URL.includes('/api'))
 )
 
 const RUNPOD_API_KEY = process.env.NEXT_PUBLIC_RUNPOD_API_KEY
@@ -25,7 +27,8 @@ console.log('API Configuration:', {
   hasRunPodKey: !!RUNPOD_API_KEY,
   hasEndpointId: !!RUNPOD_ENDPOINT_ID,
   API_BASE_URL,
-  NODE_ENV: process.env.NODE_ENV
+  NODE_ENV: process.env.NODE_ENV,
+  isProduction: process.env.NODE_ENV === 'production'
 })
 
 // Create axios instance
