@@ -28,20 +28,10 @@ AVAILABLE_LORAS = {
         "path": "/runpod-volume/Flux-Uncensored-V2",
         "description": "Enhanced uncensored model for creative freedom"
     },
-    "flux-realism": {
-        "name": "FLUX Realism",
-        "path": "/runpod-volume/Flux-Realism",
-        "description": "Photorealistic image generation"
-    },
-    "flux-anime": {
-        "name": "FLUX Anime",
-        "path": "/runpod-volume/Flux-Anime", 
-        "description": "Anime and manga style generation"
-    },
-    "flux-portrait": {
-        "name": "FLUX Portrait",
-        "path": "/runpod-volume/Flux-Portrait",
-        "description": "Professional portrait generation"
+    "flux-nsfw": {
+        "name": "FLUX NSFW",
+        "path": "/runpod-volume/flux_nsfw",
+        "description": "NSFW content generation model"
     }
 }
 
