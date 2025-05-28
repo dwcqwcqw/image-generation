@@ -8,6 +8,11 @@ import type {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api'
 
+// For static deployment (Cloudflare Pages), use RunPod API directly
+const USE_RUNPOD_DIRECT = process.env.NODE_ENV === 'production' && !API_BASE_URL.includes('/api')
+const RUNPOD_API_KEY = process.env.NEXT_PUBLIC_RUNPOD_API_KEY
+const RUNPOD_ENDPOINT_ID = process.env.NEXT_PUBLIC_RUNPOD_ENDPOINT_ID
+
 // Create axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -36,9 +41,48 @@ api.interceptors.response.use(
   }
 )
 
+// Direct RunPod API call
+async function callRunPodAPI(taskType: string, params: any): Promise<GeneratedImage[]> {
+  if (!RUNPOD_API_KEY || !RUNPOD_ENDPOINT_ID) {
+    throw new Error('RunPod configuration not available')
+  }
+
+  const RUNPOD_API_URL = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/runsync`
+
+  const runpodRequest = {
+    input: {
+      task_type: taskType,
+      params: params
+    }
+  }
+
+  const response = await axios.post(RUNPOD_API_URL, runpodRequest, {
+    headers: {
+      'Authorization': `Bearer ${RUNPOD_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    timeout: 300000,
+  })
+
+  if (response.data.status === 'COMPLETED') {
+    const output = response.data.output
+    if (output.success) {
+      return output.data
+    } else {
+      throw new Error(output.error || 'Generation failed')
+    }
+  } else {
+    throw new Error(`RunPod job failed with status: ${response.data.status}`)
+  }
+}
+
 // Generate text-to-image
 export async function generateTextToImage(params: TextToImageParams): Promise<GeneratedImage[]> {
   try {
+    if (USE_RUNPOD_DIRECT) {
+      return await callRunPodAPI('text-to-image', params)
+    }
+
     const response = await api.post<ApiResponse<GeneratedImage[]>>('/generate/text-to-image', params)
     
     if (!response.data.success) {
@@ -55,6 +99,37 @@ export async function generateTextToImage(params: TextToImageParams): Promise<Ge
 // Generate image-to-image
 export async function generateImageToImage(params: ImageToImageParams): Promise<GeneratedImage[]> {
   try {
+    if (USE_RUNPOD_DIRECT) {
+      // Convert image to base64 for RunPod API
+      let base64Image = ''
+      if (params.image instanceof File) {
+        const reader = new FileReader()
+        base64Image = await new Promise((resolve, reject) => {
+          reader.onload = () => {
+            const result = reader.result as string
+            resolve(result.split(',')[1]) // Remove data URL prefix
+          }
+          reader.onerror = reject
+          reader.readAsDataURL(params.image as File)
+        })
+      }
+
+      const runpodParams = {
+        prompt: params.prompt,
+        negativePrompt: params.negativePrompt,
+        image: base64Image,
+        width: params.width,
+        height: params.height,
+        steps: params.steps,
+        cfgScale: params.cfgScale,
+        seed: params.seed,
+        numImages: params.numImages,
+        denoisingStrength: params.denoisingStrength,
+      }
+
+      return await callRunPodAPI('image-to-image', runpodParams)
+    }
+
     const formData = new FormData()
     
     // Add image file

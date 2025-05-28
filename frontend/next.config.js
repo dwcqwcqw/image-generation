@@ -1,9 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Removed output: 'export' for local development to enable API routes
-  // output: 'export',
+  // Enable static export for production build, disable for development
+  output: process.env.NODE_ENV === 'production' ? 'export' : undefined,
   trailingSlash: true,
-  // distDir: 'out',
+  distDir: process.env.NODE_ENV === 'production' ? 'out' : '.next',
   images: {
     remotePatterns: [
       {
