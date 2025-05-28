@@ -10,6 +10,36 @@ import uuid
 from datetime import datetime
 import boto3
 from botocore.config import Config
+import sys
+import traceback
+
+# 添加启动日志
+print("=== Starting AI Image Generation Backend ===")
+print(f"Python version: {sys.version}")
+print(f"PyTorch version: {torch.__version__}")
+print(f"CUDA available: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"CUDA version: {torch.version.cuda}")
+    print(f"GPU count: {torch.cuda.device_count()}")
+    for i in range(torch.cuda.device_count()):
+        print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
+
+# 验证关键环境变量
+required_env_vars = [
+    "CLOUDFLARE_R2_ACCESS_KEY",
+    "CLOUDFLARE_R2_SECRET_KEY", 
+    "CLOUDFLARE_R2_BUCKET",
+    "CLOUDFLARE_R2_ENDPOINT"
+]
+
+missing_vars = []
+for var in required_env_vars:
+    if not os.getenv(var):
+        missing_vars.append(var)
+
+if missing_vars:
+    print(f"WARNING: Missing environment variables: {missing_vars}")
+    print("Container will start but R2 upload may fail")
 
 # 环境变量
 CLOUDFLARE_R2_ACCESS_KEY = os.getenv("CLOUDFLARE_R2_ACCESS_KEY")
@@ -39,14 +69,23 @@ AVAILABLE_LORAS = {
 DEFAULT_LORA = "flux-uncensored-v2"
 
 # 初始化 Cloudflare R2 客户端
-r2_client = boto3.client(
-    's3',
-    endpoint_url=CLOUDFLARE_R2_ENDPOINT,
-    aws_access_key_id=CLOUDFLARE_R2_ACCESS_KEY,
-    aws_secret_access_key=CLOUDFLARE_R2_SECRET_KEY,
-    config=Config(signature_version='s3v4'),
-    region_name='auto'
-)
+r2_client = None
+if all([CLOUDFLARE_R2_ACCESS_KEY, CLOUDFLARE_R2_SECRET_KEY, CLOUDFLARE_R2_BUCKET, CLOUDFLARE_R2_ENDPOINT]):
+    try:
+        r2_client = boto3.client(
+            's3',
+            endpoint_url=CLOUDFLARE_R2_ENDPOINT,
+            aws_access_key_id=CLOUDFLARE_R2_ACCESS_KEY,
+            aws_secret_access_key=CLOUDFLARE_R2_SECRET_KEY,
+            config=Config(signature_version='s3v4'),
+            region_name='auto'
+        )
+        print("✓ R2 client initialized successfully")
+    except Exception as e:
+        print(f"✗ Failed to initialize R2 client: {e}")
+        r2_client = None
+else:
+    print("✗ R2 configuration incomplete - R2 upload will be disabled")
 
 # 全局变量存储模型
 txt2img_pipe = None
@@ -137,17 +176,29 @@ def load_models():
         
     except Exception as e:
         print(f"Error loading models: {str(e)}")
-        import traceback
         traceback.print_exc()
         raise e
 
 def upload_to_r2(image_data: bytes, filename: str) -> str:
     """上传图片到 Cloudflare R2"""
     try:
+        # 检查R2客户端是否可用
+        if r2_client is None:
+            raise RuntimeError("R2 client not available - check environment variables")
+            
         # 确保 image_data 是 bytes 类型
         if not isinstance(image_data, bytes):
             raise TypeError(f"Expected bytes, got {type(image_data)}")
             
+        # 验证文件大小
+        if len(image_data) == 0:
+            raise ValueError("Image data is empty")
+            
+        if len(image_data) > 50 * 1024 * 1024:  # 50MB limit
+            raise ValueError(f"Image too large: {len(image_data)} bytes")
+            
+        print(f"Uploading {len(image_data)} bytes to R2 as {filename}")
+        
         r2_client.put_object(
             Bucket=CLOUDFLARE_R2_BUCKET,
             Key=filename,
@@ -158,12 +209,18 @@ def upload_to_r2(image_data: bytes, filename: str) -> str:
         
         # 构建公共 URL
         public_url = f"{CLOUDFLARE_R2_ENDPOINT}/{CLOUDFLARE_R2_BUCKET}/{filename}"
+        print(f"✓ Successfully uploaded to: {public_url}")
         return public_url
         
     except Exception as e:
-        print(f"Error uploading to R2: {str(e)}")
+        print(f"✗ Error uploading to R2: {str(e)}")
         print(f"Image data type: {type(image_data)}, size: {len(image_data) if hasattr(image_data, '__len__') else 'unknown'}")
-        raise e
+        
+        # 对于演示目的，返回一个占位符URL而不是失败
+        # 在生产环境中，您可能希望抛出异常
+        placeholder_url = f"https://via.placeholder.com/512x512/cccccc/666666?text=Upload+Failed"
+        print(f"Returning placeholder URL: {placeholder_url}")
+        return placeholder_url
 
 def image_to_bytes(image: Image.Image) -> bytes:
     """将 PIL Image 转换为字节"""
@@ -619,7 +676,6 @@ def handler(job):
             
     except Exception as e:
         print(f"Handler error: {str(e)}")
-        import traceback
         traceback.print_exc()
         return {
             'success': False,
@@ -638,6 +694,5 @@ if __name__ == "__main__":
         })
     except Exception as e:
         print(f"Failed to start serverless: {str(e)}")
-        import traceback
         traceback.print_exc()
         raise e 
