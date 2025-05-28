@@ -1,5 +1,5 @@
 # Use Python official image as base - 确保镜像绝对可用
-FROM python:3.10-slim
+FROM --platform=linux/amd64 python:3.10-slim
 
 # Set working directory
 WORKDIR /app
@@ -24,14 +24,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --upgrade pip
 
 # Copy and run installation script
-COPY backend/install_requirements.sh .
+COPY install_requirements.sh .
 RUN chmod +x install_requirements.sh && ./install_requirements.sh
 
 # Copy application code
-COPY backend/handler.py .
+COPY handler.py .
 
 # Copy environment variables (if .env file exists)
-COPY backend/.env* ./
+COPY .env* ./
 
 # Create model directory
 RUN mkdir -p /runpod-volume

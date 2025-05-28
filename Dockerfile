@@ -17,6 +17,9 @@ RUN apt-get update && apt-get install -y \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Fix NumPy version compatibility issue FIRST
+RUN pip install --force-reinstall "numpy>=1.24.0,<2.0"
+
 # Copy requirements and install Python dependencies
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

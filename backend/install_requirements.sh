@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+echo "Checking and fixing NumPy version compatibility..."
+# Force NumPy 1.x for compatibility with PyTorch and ML libraries
+pip install "numpy>=1.24.0,<2.0" --force-reinstall
+
 echo "Installing PyTorch with CUDA support for RunPod..."
 pip install torch==2.2.0+cu118 torchvision==0.17.0+cu118 torchaudio==2.2.0+cu118 --index-url https://download.pytorch.org/whl/cu118
 
@@ -12,7 +16,6 @@ pip install \
     accelerate>=0.24.0 \
     safetensors>=0.4.0 \
     Pillow>=10.0.0 \
-    numpy>=1.24.0 \
     boto3>=1.34.0 \
     peft>=0.8.0 \
     protobuf>=3.20.0 \
