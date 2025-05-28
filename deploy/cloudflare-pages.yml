@@ -1,17 +1,17 @@
 # Cloudflare Pages 部署配置
 
 build:
-  command: npm run build
-  publish: .next
+  command: cd frontend && npm install && npm run build
+  publish: frontend/out
   
 environment:
   NODE_VERSION: "18"
   NPM_VERSION: "9"
   
 build_settings:
-  root_dir: frontend
-  build_command: npm run build
-  publish_directory: frontend/.next
+  root_dir: "/"
+  build_command: cd frontend && npm install && npm run build
+  publish_directory: frontend/out
   
 functions:
   node_compat: true

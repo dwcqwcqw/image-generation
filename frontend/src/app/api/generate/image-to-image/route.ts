@@ -1,40 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import axios from 'axios'
 
-const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY
-const RUNPOD_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID
-
-if (!RUNPOD_API_KEY || !RUNPOD_ENDPOINT_ID) {
-  console.error('Missing RunPod configuration')
-}
-
-const RUNPOD_API_URL = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/runsync`
-
-async function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.readAsDataURL(file)
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = error => reject(error)
-  })
-}
-
 export async function POST(request: NextRequest) {
   try {
+    const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY
+    const RUNPOD_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID
+
+    if (!RUNPOD_API_KEY || !RUNPOD_ENDPOINT_ID) {
+      console.error('Missing RunPod configuration')
+      return NextResponse.json(
+        { success: false, error: 'Server configuration error' },
+        { status: 500 }
+      )
+    }
+
+    const RUNPOD_API_URL = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/runsync`
+
     const formData = await request.formData()
-    
-    // 获取文件和其他参数
-    const imageFile = formData.get('image') as File
     const prompt = formData.get('prompt') as string
-    const negativePrompt = formData.get('negativePrompt') as string || ''
-    const width = parseInt(formData.get('width') as string) || 512
-    const height = parseInt(formData.get('height') as string) || 512
-    const steps = parseInt(formData.get('steps') as string) || 20
-    const cfgScale = parseFloat(formData.get('cfgScale') as string) || 7.0
-    const seed = parseInt(formData.get('seed') as string) || -1
-    const numImages = Math.min(parseInt(formData.get('numImages') as string) || 1, 4)
-    const denoisingStrength = parseFloat(formData.get('denoisingStrength') as string) || 0.7
-    
+    const imageFile = formData.get('image') as File
+
     // 验证必需参数
     if (!prompt || typeof prompt !== 'string') {
       return NextResponse.json(
@@ -43,15 +28,27 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!imageFile || !imageFile.type.startsWith('image/')) {
+    if (!imageFile) {
       return NextResponse.json(
-        { success: false, error: 'Valid image file is required' },
+        { success: false, error: 'Image file is required' },
         { status: 400 }
       )
     }
 
-    // 将图片转换为 base64
-    const imageBase64 = await fileToBase64(imageFile)
+    // 转换图片为 base64
+    const bytes = await imageFile.arrayBuffer()
+    const buffer = Buffer.from(bytes)
+    const base64Image = buffer.toString('base64')
+
+    // 获取其他参数
+    const denoisingStrength = parseFloat(formData.get('denoisingStrength') as string) || 0.8
+    const width = parseInt(formData.get('width') as string) || 512
+    const height = parseInt(formData.get('height') as string) || 512
+    const steps = parseInt(formData.get('steps') as string) || 20
+    const cfgScale = parseFloat(formData.get('cfgScale') as string) || 7.0
+    const seed = parseInt(formData.get('seed') as string) || -1
+    const numImages = Math.min(parseInt(formData.get('numImages') as string) || 1, 4)
+    const negativePrompt = formData.get('negativePrompt') as string || ''
 
     // 准备 RunPod 请求
     const runpodRequest = {
@@ -60,14 +57,14 @@ export async function POST(request: NextRequest) {
         params: {
           prompt,
           negativePrompt,
-          image: imageBase64,
+          image: base64Image,
+          denoisingStrength,
           width,
           height,
           steps,
           cfgScale,
           seed,
           numImages,
-          denoisingStrength,
         }
       }
     }

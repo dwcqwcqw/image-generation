@@ -1,17 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import axios from 'axios'
 
-const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY
-const RUNPOD_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID
-
-if (!RUNPOD_API_KEY || !RUNPOD_ENDPOINT_ID) {
-  console.error('Missing RunPod configuration')
-}
-
-const RUNPOD_API_URL = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/runsync`
-
 export async function POST(request: NextRequest) {
   try {
+    const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY
+    const RUNPOD_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID
+
+    if (!RUNPOD_API_KEY || !RUNPOD_ENDPOINT_ID) {
+      console.error('Missing RunPod configuration')
+      return NextResponse.json(
+        { success: false, error: 'Server configuration error' },
+        { status: 500 }
+      )
+    }
+
+    const RUNPOD_API_URL = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/runsync`
+    
     const body = await request.json()
     
     // 验证必需参数
