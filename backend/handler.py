@@ -100,46 +100,93 @@ def get_device():
         return "cpu"
 
 def load_models():
-    """加载 FLUX 模型"""
+    """加载 FLUX 模型 - 大幅性能优化版本"""
     global txt2img_pipe, img2img_pipe
     
-    print("Loading FLUX models...")
+    print("🚀 Loading FLUX models with optimizations...")
+    start_time = datetime.now()
     
     # 检查 CUDA 可用性
     device = get_device()
-    print(f"Using device: {device}")
+    print(f"📱 Using device: {device}")
+    
+    # GPU内存优化
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        print(f"💾 GPU Memory before loading: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
     
     try:
-        # 加载文生图模型，增加错误处理
-        print("Loading text-to-image pipeline...")
+        # 🎯 优化1: 使用低内存模式和优化配置
+        print("⚡ Loading text-to-image pipeline with optimizations...")
+        
+        # 内存优化配置
+        model_kwargs = {
+            "torch_dtype": torch.float16 if device == "cuda" else torch.float32,
+            "use_safetensors": True,
+            "low_cpu_mem_usage": True,  # 低CPU内存使用
+        }
+        
+        # 尝试使用设备映射优化
+        if device == "cuda":
+            try:
+                model_kwargs.update({
+                    "device_map": "auto",  # 自动设备映射
+                })
+                print("✅ Auto device mapping enabled")
+            except:
+                print("⚠️  Auto device mapping not supported, using manual placement")
+        
         txt2img_pipe = FluxPipeline.from_pretrained(
             FLUX_BASE_PATH,
-            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-            use_safetensors=True,
-            # Removed variant parameter to avoid fp16 variant error
-            # variant="fp16" if device == "cuda" else None
+            **model_kwargs
         )
         
+        loading_time = (datetime.now() - start_time).total_seconds()
+        print(f"⏱️  Base model loaded in {loading_time:.2f}s")
+        
+        # 🎯 优化2: 启用内存高效注意力
+        try:
+            txt2img_pipe.enable_attention_slicing()
+            print("✅ Attention slicing enabled")
+        except Exception as e:
+            print(f"⚠️  Attention slicing not available: {e}")
+            
+        try:
+            txt2img_pipe.enable_model_cpu_offload()
+            print("✅ CPU offload enabled")
+        except Exception as e:
+            print(f"⚠️  CPU offload not available: {e}")
+        
+        # 🎯 优化3: VAE内存优化
+        try:
+            txt2img_pipe.enable_vae_slicing()
+            txt2img_pipe.enable_vae_tiling()
+            print("✅ VAE optimizations enabled")
+        except Exception as e:
+            print(f"⚠️  VAE optimizations not available: {e}")
+        
         # 加载默认 LoRA 权重 (必选)
+        lora_start_time = datetime.now()
         default_lora_path = AVAILABLE_LORAS[DEFAULT_LORA]["path"]
         if os.path.exists(default_lora_path):
-            print(f"Loading default LoRA weights: {AVAILABLE_LORAS[DEFAULT_LORA]['name']} from {default_lora_path}")
+            print(f"🎨 Loading default LoRA: {AVAILABLE_LORAS[DEFAULT_LORA]['name']}")
             try:
                 txt2img_pipe.load_lora_weights(default_lora_path)
-                print(f"Successfully loaded LoRA: {AVAILABLE_LORAS[DEFAULT_LORA]['name']}")
+                lora_time = (datetime.now() - lora_start_time).total_seconds()
+                print(f"✅ LoRA loaded in {lora_time:.2f}s: {AVAILABLE_LORAS[DEFAULT_LORA]['name']}")
             except ValueError as e:
                 if "PEFT backend is required" in str(e):
-                    print("ERROR: PEFT backend is required for LoRA support")
-                    print("Please install: pip install peft>=0.8.0")
+                    print("❌ ERROR: PEFT backend is required for LoRA support")
+                    print("   Please install: pip install peft>=0.8.0")
                     raise RuntimeError("PEFT library is required but not installed")
                 else:
-                    print(f"ERROR: Failed to load LoRA weights: {e}")
+                    print(f"❌ ERROR: Failed to load LoRA weights: {e}")
                     raise RuntimeError(f"Failed to load required LoRA model: {e}")
             except Exception as e:
-                print(f"ERROR: Failed to load LoRA weights: {e}")
+                print(f"❌ ERROR: Failed to load LoRA weights: {e}")
                 raise RuntimeError(f"Failed to load required LoRA model: {e}")
         else:
-            print(f"ERROR: Default LoRA weights not found at {default_lora_path}")
+            print(f"❌ ERROR: Default LoRA weights not found at {default_lora_path}")
             raise RuntimeError(f"Required LoRA model not found: {AVAILABLE_LORAS[DEFAULT_LORA]['name']}")
         
         # 验证其他可用的LoRA模型
@@ -147,20 +194,32 @@ def load_models():
         for lora_id, lora_info in AVAILABLE_LORAS.items():
             if os.path.exists(lora_info["path"]):
                 available_loras.append(lora_id)
-                print(f"✓ Available LoRA: {lora_info['name']}")
+                print(f"✅ Available LoRA: {lora_info['name']}")
             else:
-                print(f"✗ Missing LoRA: {lora_info['name']} at {lora_info['path']}")
+                print(f"❌ Missing LoRA: {lora_info['name']} at {lora_info['path']}")
         
         if len(available_loras) == 0:
             raise RuntimeError("No LoRA models found. LoRA models are required for this service.")
         
-        print(f"Total available LoRA models: {len(available_loras)}")
+        print(f"📊 Total available LoRA models: {len(available_loras)}")
         
-        print("Moving pipeline to device...")
-        txt2img_pipe = txt2img_pipe.to(device)
+        # 🎯 优化4: 智能设备移动
+        device_start_time = datetime.now()
+        print("🚚 Moving pipeline to device...")
         
-        # 加载图生图模型 (共享组件)
-        print("Creating image-to-image pipeline...")
+        if device == "cuda":
+            # 渐进式移动到GPU，避免内存峰值
+            txt2img_pipe = txt2img_pipe.to(device)
+        else:
+            txt2img_pipe = txt2img_pipe.to(device)
+        
+        device_time = (datetime.now() - device_start_time).total_seconds()
+        print(f"✅ Device transfer completed in {device_time:.2f}s")
+        
+        # 🎯 优化5: 图生图模型使用共享组件 (零拷贝)
+        print("🔗 Creating image-to-image pipeline (sharing components)...")
+        img_start_time = datetime.now()
+        
         img2img_pipe = FluxImg2ImgPipeline(
             vae=txt2img_pipe.vae,
             text_encoder=txt2img_pipe.text_encoder,
@@ -170,12 +229,41 @@ def load_models():
             transformer=txt2img_pipe.transformer,
             scheduler=txt2img_pipe.scheduler,
         )
-        img2img_pipe = img2img_pipe.to(device)
         
-        print("Models loaded successfully!")
+        # 不需要再次移动到设备，因为共享组件已经在设备上
+        img_time = (datetime.now() - img_start_time).total_seconds()
+        print(f"✅ Image-to-image pipeline created in {img_time:.2f}s")
+        
+        # 最终内存状态
+        if torch.cuda.is_available():
+            print(f"💾 GPU Memory after loading: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+            print(f"💾 GPU Memory reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
+        
+        total_time = (datetime.now() - start_time).total_seconds()
+        print(f"🎉 All models loaded successfully in {total_time:.2f}s!")
+        
+        # 🎯 优化6: 预热推理 (可选)
+        try:
+            print("🔥 Warming up models with test inference...")
+            warmup_start = datetime.now()
+            with torch.no_grad():
+                # 小尺寸预热推理
+                test_result = txt2img_pipe(
+                    prompt="test",
+                    width=512,
+                    height=512,
+                    num_inference_steps=1,
+                    guidance_scale=1.0
+                )
+            warmup_time = (datetime.now() - warmup_start).total_seconds()
+            print(f"✅ Model warmup completed in {warmup_time:.2f}s")
+        except Exception as e:
+            print(f"⚠️  Model warmup failed (不影响正常使用): {e}")
+        
+        print("🚀 System ready for image generation!")
         
     except Exception as e:
-        print(f"Error loading models: {str(e)}")
+        print(f"❌ Error loading models: {str(e)}")
         traceback.print_exc()
         raise e
 

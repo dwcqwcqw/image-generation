@@ -59,7 +59,7 @@ api.interceptors.response.use(
   }
 )
 
-// Direct RunPod API call
+// Direct RunPod API call with queue handling
 async function callRunPodAPI(taskType: string, params: any, signal?: AbortSignal): Promise<any> {
   console.log('Calling RunPod API directly:', { taskType, hasKey: !!RUNPOD_API_KEY, hasEndpoint: !!RUNPOD_ENDPOINT_ID })
   
@@ -90,6 +90,7 @@ async function callRunPodAPI(taskType: string, params: any, signal?: AbortSignal
 
   console.log('RunPod response:', response.data)
 
+  // 🚀 优化：处理队列状态，避免抛出错误
   if (response.data.status === 'COMPLETED') {
     const output = response.data.output
     if (output.success) {
@@ -97,9 +98,88 @@ async function callRunPodAPI(taskType: string, params: any, signal?: AbortSignal
     } else {
       throw new Error(output.error || 'Generation failed')
     }
+  } else if (response.data.status === 'IN_QUEUE') {
+    // 🔄 处理队列状态 - 轮询等待完成
+    console.log('Job is in queue, polling for completion...')
+    const jobId = response.data.id
+    
+    if (!jobId) {
+      throw new Error('Job queued but no job ID received')
+    }
+    
+    return await pollRunPodJob(jobId, signal)
+  } else if (response.data.status === 'IN_PROGRESS') {
+    // 🔄 处理进行中状态 - 轮询等待完成
+    console.log('Job is in progress, polling for completion...')
+    const jobId = response.data.id
+    
+    if (!jobId) {
+      throw new Error('Job in progress but no job ID received')
+    }
+    
+    return await pollRunPodJob(jobId, signal)
   } else {
     throw new Error(`RunPod job failed with status: ${response.data.status}`)
   }
+}
+
+// 轮询RunPod作业状态直到完成
+async function pollRunPodJob(jobId: string, signal?: AbortSignal): Promise<any> {
+  const POLL_INTERVAL = 2000 // 2秒轮询间隔
+  const MAX_POLL_TIME = 300000 // 5分钟最大等待时间
+  const startTime = Date.now()
+  
+  const RUNPOD_STATUS_URL = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/status/${jobId}`
+  
+  while (Date.now() - startTime < MAX_POLL_TIME) {
+    if (signal?.aborted) {
+      throw new Error('Request was aborted')
+    }
+    
+    try {
+      console.log(`Polling job ${jobId} status...`)
+      
+      const statusResponse = await axios.get(RUNPOD_STATUS_URL, {
+        headers: {
+          'Authorization': `Bearer ${RUNPOD_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 10000, // 10秒超时
+        signal: signal,
+      })
+      
+      const status = statusResponse.data.status
+      console.log(`Job ${jobId} status: ${status}`)
+      
+      if (status === 'COMPLETED') {
+        const output = statusResponse.data.output
+        if (output.success) {
+          return output.data
+        } else {
+          throw new Error(output.error || 'Generation failed')
+        }
+      } else if (status === 'FAILED') {
+        const errorMsg = statusResponse.data.error || 'Job failed'
+        throw new Error(`RunPod job failed: ${errorMsg}`)
+      } else if (status === 'CANCELLED') {
+        throw new Error('RunPod job was cancelled')
+      }
+      // 继续轮询 IN_QUEUE 和 IN_PROGRESS 状态
+      
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
+        console.log('Status poll timeout, retrying...')
+      } else {
+        console.error('Error polling job status:', error)
+        throw error
+      }
+    }
+    
+    // 等待轮询间隔
+    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL))
+  }
+  
+  throw new Error('Job polling timeout - please try again or check RunPod status')
 }
 
 // Generate text-to-image
