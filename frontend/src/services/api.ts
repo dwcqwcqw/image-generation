@@ -56,7 +56,7 @@ api.interceptors.response.use(
 )
 
 // Direct RunPod API call
-async function callRunPodAPI(taskType: string, params: any): Promise<GeneratedImage[]> {
+async function callRunPodAPI(taskType: string, params: any, signal?: AbortSignal): Promise<GeneratedImage[]> {
   console.log('Calling RunPod API directly:', { taskType, hasKey: !!RUNPOD_API_KEY, hasEndpoint: !!RUNPOD_ENDPOINT_ID })
   
   if (!RUNPOD_API_KEY || !RUNPOD_ENDPOINT_ID) {
@@ -80,6 +80,7 @@ async function callRunPodAPI(taskType: string, params: any): Promise<GeneratedIm
       'Content-Type': 'application/json',
     },
     timeout: 300000,
+    signal: signal,
   })
 
   console.log('RunPod response:', response.data)
@@ -97,15 +98,17 @@ async function callRunPodAPI(taskType: string, params: any): Promise<GeneratedIm
 }
 
 // Generate text-to-image
-export async function generateTextToImage(params: TextToImageParams): Promise<GeneratedImage[]> {
+export async function generateTextToImage(params: TextToImageParams, signal?: AbortSignal): Promise<GeneratedImage[]> {
   try {
     console.log('generateTextToImage called with USE_RUNPOD_DIRECT:', USE_RUNPOD_DIRECT)
     
     if (USE_RUNPOD_DIRECT) {
-      return await callRunPodAPI('text-to-image', params)
+      return await callRunPodAPI('text-to-image', params, signal)
     }
 
-    const response = await api.post<ApiResponse<GeneratedImage[]>>('/generate/text-to-image', params)
+    const response = await api.post<ApiResponse<GeneratedImage[]>>('/generate/text-to-image', params, {
+      signal: signal,
+    })
     
     if (!response.data.success) {
       throw new Error(response.data.error || 'Generation failed')
@@ -119,7 +122,7 @@ export async function generateTextToImage(params: TextToImageParams): Promise<Ge
 }
 
 // Generate image-to-image
-export async function generateImageToImage(params: ImageToImageParams): Promise<GeneratedImage[]> {
+export async function generateImageToImage(params: ImageToImageParams, signal?: AbortSignal): Promise<GeneratedImage[]> {
   try {
     console.log('generateImageToImage called with USE_RUNPOD_DIRECT:', USE_RUNPOD_DIRECT)
     
@@ -151,7 +154,7 @@ export async function generateImageToImage(params: ImageToImageParams): Promise<
         denoisingStrength: params.denoisingStrength,
       }
 
-      return await callRunPodAPI('image-to-image', runpodParams)
+      return await callRunPodAPI('image-to-image', runpodParams, signal)
     }
 
     const formData = new FormData()
@@ -179,6 +182,7 @@ export async function generateImageToImage(params: ImageToImageParams): Promise<
         headers: {
           'Content-Type': 'multipart/form-data',
         },
+        signal: signal,
       }
     )
     

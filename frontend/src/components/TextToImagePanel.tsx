@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { toast } from 'react-hot-toast'
 import { 
   Play, 
@@ -9,16 +9,25 @@ import {
   Settings, 
   ChevronDown,
   ChevronUp,
-  Shuffle
+  Shuffle,
+  StopCircle,
+  AlertCircle,
+  CheckCircle,
+  Clock
 } from 'lucide-react'
 import ImageGallery from './ImageGallery'
 import { generateTextToImage } from '@/services/api'
 import type { TextToImageParams, GeneratedImage } from '@/types'
 
+type GenerationStatus = 'idle' | 'pending' | 'success' | 'error' | 'cancelled'
+
 export default function TextToImagePanel() {
-  const [isLoading, setIsLoading] = useState(false)
+  const [status, setStatus] = useState<GenerationStatus>('idle')
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false)
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([])
+  const [currentError, setCurrentError] = useState<string | null>(null)
+  const [generationProgress, setGenerationProgress] = useState<string>('')
+  const abortControllerRef = useRef<AbortController | null>(null)
   
   const [params, setParams] = useState<TextToImageParams>({
     prompt: '',
@@ -37,21 +46,77 @@ export default function TextToImagePanel() {
       return
     }
 
-    setIsLoading(true)
+    // Cancel any existing generation
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+
+    // Create new abort controller
+    abortControllerRef.current = new AbortController()
+    
+    setStatus('pending')
+    setCurrentError(null)
+    setGenerationProgress('Initializing generation...')
+    
     try {
-      const result = await generateTextToImage(params)
+      const result = await generateTextToImage(params, abortControllerRef.current.signal)
+      
+      if (abortControllerRef.current.signal.aborted) {
+        setStatus('cancelled')
+        setGenerationProgress('Generation cancelled')
+        return
+      }
+      
       setGeneratedImages(prev => [...result, ...prev])
+      setStatus('success')
+      setGenerationProgress(`Successfully generated ${result.length} image(s)`)
       toast.success(`Generated ${result.length} image(s)`)
-    } catch (error) {
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        setStatus('cancelled')
+        setGenerationProgress('Generation cancelled')
+        return
+      }
+      
       console.error('Generation failed:', error)
+      setStatus('error')
+      setCurrentError(error.message || 'Failed to generate image')
+      setGenerationProgress('Generation failed')
       toast.error('Failed to generate image. Please try again.')
     } finally {
-      setIsLoading(false)
+      abortControllerRef.current = null
     }
+  }
+
+  const handleCancelGeneration = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      setStatus('cancelled')
+      setGenerationProgress('Cancelling generation...')
+    }
+  }
+
+  const handleRetry = () => {
+    setStatus('idle')
+    setCurrentError(null)
+    setGenerationProgress('')
+    handleGenerate()
   }
 
   const handleRandomSeed = () => {
     setParams(prev => ({ ...prev, seed: Math.floor(Math.random() * 1000000) }))
+  }
+
+  const downloadAllImages = () => {
+    generatedImages.forEach((image, index) => {
+      const link = document.createElement('a')
+      link.href = image.url
+      link.download = `generated_image_${index + 1}.png`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    })
+    toast.success(`Downloaded ${generatedImages.length} images`)
   }
 
   const presetSizes = [
@@ -62,6 +127,36 @@ export default function TextToImagePanel() {
     { label: '768×512', width: 768, height: 512 },
   ]
 
+  const getStatusIcon = () => {
+    switch (status) {
+      case 'pending':
+        return <Clock className="w-4 h-4 animate-spin" />
+      case 'success':
+        return <CheckCircle className="w-4 h-4 text-green-500" />
+      case 'error':
+        return <AlertCircle className="w-4 h-4 text-red-500" />
+      case 'cancelled':
+        return <StopCircle className="w-4 h-4 text-gray-500" />
+      default:
+        return null
+    }
+  }
+
+  const getStatusText = () => {
+    switch (status) {
+      case 'pending':
+        return 'Generating...'
+      case 'success':
+        return 'Generation complete'
+      case 'error':
+        return 'Generation failed'
+      case 'cancelled':
+        return 'Generation cancelled'
+      default:
+        return 'Ready to generate'
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -69,6 +164,27 @@ export default function TextToImagePanel() {
         <div className="lg:col-span-1 space-y-4">
           <div className="card">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Text to Image</h3>
+            
+            {/* Status Display */}
+            {(status !== 'idle' || generationProgress) && (
+              <div className={`mb-4 p-3 rounded-lg border ${
+                status === 'success' ? 'bg-green-50 border-green-200' :
+                status === 'error' ? 'bg-red-50 border-red-200' :
+                status === 'cancelled' ? 'bg-gray-50 border-gray-200' :
+                'bg-blue-50 border-blue-200'
+              }`}>
+                <div className="flex items-center space-x-2">
+                  {getStatusIcon()}
+                  <span className="text-sm font-medium">{getStatusText()}</span>
+                </div>
+                {generationProgress && (
+                  <p className="text-xs text-gray-600 mt-1">{generationProgress}</p>
+                )}
+                {currentError && (
+                  <p className="text-xs text-red-600 mt-1">{currentError}</p>
+                )}
+              </div>
+            )}
             
             {/* Prompt */}
             <div className="space-y-2">
@@ -80,7 +196,7 @@ export default function TextToImagePanel() {
                 onChange={(e) => setParams(prev => ({ ...prev, prompt: e.target.value }))}
                 placeholder="A beautiful landscape with mountains and lake at sunset..."
                 className="textarea-field h-24"
-                disabled={isLoading}
+                disabled={status === 'pending'}
               />
             </div>
 
@@ -94,7 +210,7 @@ export default function TextToImagePanel() {
                 onChange={(e) => setParams(prev => ({ ...prev, negativePrompt: e.target.value }))}
                 placeholder="blurry, low quality, distorted..."
                 className="textarea-field h-20"
-                disabled={isLoading}
+                disabled={status === 'pending'}
               />
             </div>
 
@@ -117,7 +233,7 @@ export default function TextToImagePanel() {
                         ? 'border-primary-500 bg-primary-50 text-primary-700'
                         : 'border-gray-300 hover:border-gray-400'
                     }`}
-                    disabled={isLoading}
+                    disabled={status === 'pending'}
                   >
                     {size.label}
                   </button>
@@ -140,7 +256,7 @@ export default function TextToImagePanel() {
                         ? 'border-primary-500 bg-primary-50 text-primary-700'
                         : 'border-gray-300 hover:border-gray-400'
                     }`}
-                    disabled={isLoading}
+                    disabled={status === 'pending'}
                   >
                     {num}
                   </button>
@@ -152,6 +268,7 @@ export default function TextToImagePanel() {
             <button
               onClick={() => setIsAdvancedOpen(!isAdvancedOpen)}
               className="flex items-center justify-between w-full p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+              disabled={status === 'pending'}
             >
               <div className="flex items-center space-x-2">
                 <Settings className="w-4 h-4" />
@@ -179,7 +296,7 @@ export default function TextToImagePanel() {
                     value={params.steps}
                     onChange={(e) => setParams(prev => ({ ...prev, steps: Number(e.target.value) }))}
                     className="slider"
-                    disabled={isLoading}
+                    disabled={status === 'pending'}
                   />
                   <div className="flex justify-between text-xs text-gray-500">
                     <span>10</span>
@@ -200,7 +317,7 @@ export default function TextToImagePanel() {
                     value={params.cfgScale}
                     onChange={(e) => setParams(prev => ({ ...prev, cfgScale: Number(e.target.value) }))}
                     className="slider"
-                    disabled={isLoading}
+                    disabled={status === 'pending'}
                   />
                   <div className="flex justify-between text-xs text-gray-500">
                     <span>1</span>
@@ -211,24 +328,20 @@ export default function TextToImagePanel() {
                 {/* Seed */}
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    Seed
+                    Seed (-1 for random)
                   </label>
                   <div className="flex space-x-2">
                     <input
                       type="number"
-                      value={params.seed === -1 ? '' : params.seed}
-                      onChange={(e) => setParams(prev => ({ 
-                        ...prev, 
-                        seed: e.target.value === '' ? -1 : Number(e.target.value) 
-                      }))}
-                      placeholder="Random"
+                      value={params.seed}
+                      onChange={(e) => setParams(prev => ({ ...prev, seed: Number(e.target.value) }))}
                       className="input-field flex-1"
-                      disabled={isLoading}
+                      disabled={status === 'pending'}
                     />
                     <button
                       onClick={handleRandomSeed}
                       className="btn-secondary px-3"
-                      disabled={isLoading}
+                      disabled={status === 'pending'}
                     >
                       <Shuffle className="w-4 h-4" />
                     </button>
@@ -237,34 +350,79 @@ export default function TextToImagePanel() {
               </div>
             )}
 
-            {/* Generate Button */}
-            <button
-              onClick={handleGenerate}
-              disabled={isLoading || !params.prompt.trim()}
-              className="btn-primary w-full py-3 text-base font-semibold"
-            >
-              {isLoading ? (
-                <div className="flex items-center justify-center space-x-2">
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Generating...</span>
-                </div>
+            {/* Action Buttons */}
+            <div className="space-y-3 pt-4">
+              {status === 'pending' ? (
+                <button
+                  onClick={handleCancelGeneration}
+                  className="btn-secondary w-full flex items-center justify-center space-x-2"
+                >
+                  <StopCircle className="w-4 h-4" />
+                  <span>Cancel Generation</span>
+                </button>
               ) : (
-                <div className="flex items-center justify-center space-x-2">
+                <button
+                  onClick={handleGenerate}
+                  disabled={!params.prompt.trim()}
+                  className="btn-primary w-full flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
                   <Play className="w-4 h-4" />
-                  <span>Generate</span>
-                </div>
+                  <span>Generate Images</span>
+                </button>
               )}
-            </button>
+
+              {status === 'error' && (
+                <button
+                  onClick={handleRetry}
+                  className="btn-secondary w-full flex items-center justify-center space-x-2"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Try Again</span>
+                </button>
+              )}
+
+              {generatedImages.length > 0 && (
+                <button
+                  onClick={downloadAllImages}
+                  className="btn-secondary w-full flex items-center justify-center space-x-2"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download All ({generatedImages.length})</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Results Panel */}
         <div className="lg:col-span-2">
-          <ImageGallery 
-            images={generatedImages}
-            isLoading={isLoading}
-            title="Generated Images"
-          />
+          <div className="card">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Generated Images ({generatedImages.length})
+              </h3>
+              {generatedImages.length > 0 && (
+                <button
+                  onClick={() => setGeneratedImages([])}
+                  className="text-sm text-gray-500 hover:text-gray-700"
+                >
+                  Clear All
+                </button>
+              )}
+            </div>
+            
+            {generatedImages.length > 0 ? (
+              <ImageGallery images={generatedImages} />
+            ) : (
+              <div className="text-center py-12 text-gray-500">
+                <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                  <Play className="w-8 h-8 text-gray-400" />
+                </div>
+                <p>No images generated yet</p>
+                <p className="text-sm">Enter a prompt and click "Generate Images" to start</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

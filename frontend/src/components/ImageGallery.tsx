@@ -10,10 +10,10 @@ import { downloadImage } from '@/services/api'
 interface ImageGalleryProps {
   images: GeneratedImage[]
   isLoading?: boolean
-  title: string
+  title?: string
 }
 
-export default function ImageGallery({ images, isLoading, title }: ImageGalleryProps) {
+export default function ImageGallery({ images, isLoading, title = "Images" }: ImageGalleryProps) {
   const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(null)
 
   const handleDownload = async (image: GeneratedImage) => {
