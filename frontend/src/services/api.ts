@@ -104,6 +104,12 @@ export async function generateTextToImage(params: TextToImageParams, signal?: Ab
   try {
     console.log('generateTextToImage called with USE_RUNPOD_DIRECT:', USE_RUNPOD_DIRECT)
     
+    // Switch LoRA model before generation if specified
+    if (params.lora_model) {
+      console.log('Switching to LoRA model before generation:', params.lora_model)
+      await switchLoraModel(params.lora_model, signal)
+    }
+    
     if (USE_RUNPOD_DIRECT) {
       return await callRunPodAPI('text-to-image', params, signal)
     }
@@ -127,6 +133,12 @@ export async function generateTextToImage(params: TextToImageParams, signal?: Ab
 export async function generateImageToImage(params: ImageToImageParams, signal?: AbortSignal): Promise<GeneratedImage[]> {
   try {
     console.log('generateImageToImage called with USE_RUNPOD_DIRECT:', USE_RUNPOD_DIRECT)
+    
+    // Switch LoRA model before generation if specified
+    if (params.lora_model) {
+      console.log('Switching to LoRA model before generation:', params.lora_model)
+      await switchLoraModel(params.lora_model, signal)
+    }
     
     if (USE_RUNPOD_DIRECT) {
       // Convert image to base64 for RunPod API
