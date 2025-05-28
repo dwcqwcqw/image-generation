@@ -1,4 +1,5 @@
 # Use NVIDIA CUDA base image with PyTorch
+# Build: $(date +%s) - Force cache refresh
 FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel
 
 # Set working directory
