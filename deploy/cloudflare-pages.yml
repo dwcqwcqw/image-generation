@@ -1,0 +1,23 @@
+# Cloudflare Pages 部署配置
+
+build:
+  command: npm run build
+  publish: .next
+  
+environment:
+  NODE_VERSION: "18"
+  NPM_VERSION: "9"
+  
+build_settings:
+  root_dir: frontend
+  build_command: npm run build
+  publish_directory: frontend/.next
+  
+functions:
+  node_compat: true
+  
+# 环境变量 (需要在 Cloudflare Pages 控制台中设置)
+environment_variables:
+  - RUNPOD_API_KEY
+  - RUNPOD_ENDPOINT_ID
+  - NEXT_PUBLIC_API_URL 
