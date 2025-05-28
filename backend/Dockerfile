@@ -1,22 +1,17 @@
-# Use NVIDIA official CUDA base image - 使用确实存在的NVIDIA官方镜像
-FROM nvidia/cuda:11.8-devel-ubuntu22.04
+# Use Python official image as base - 确保镜像绝对可用
+FROM python:3.10-slim
 
 # Set working directory
 WORKDIR /app
 
-# Set environment variables to prevent interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
+# Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV CUDA_VISIBLE_DEVICES=0
 ENV HF_HOME=/tmp/.cache/huggingface
 ENV TRANSFORMERS_CACHE=/tmp/.cache/transformers
 
-# Install system dependencies including Python 3.10
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 \
-    python3.10-dev \
-    python3.10-distutils \
-    python3-pip \
     git \
     wget \
     curl \
@@ -25,12 +20,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Create symbolic links for python
-RUN ln -sf /usr/bin/python3.10 /usr/bin/python3 && \
-    ln -sf /usr/bin/python3.10 /usr/bin/python
-
 # Upgrade pip
-RUN python3 -m pip install --upgrade pip
+RUN pip install --upgrade pip
 
 # Copy and run installation script
 COPY backend/install_requirements.sh .

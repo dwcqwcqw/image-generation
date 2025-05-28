@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "Installing PyTorch with CUDA 11.8 support..."
+echo "Installing PyTorch with CUDA support for RunPod..."
 pip install torch==2.2.0+cu118 torchvision==0.17.0+cu118 torchaudio==2.2.0+cu118 --index-url https://download.pytorch.org/whl/cu118
 
 echo "Installing other ML dependencies..."
