@@ -3,7 +3,8 @@ import type {
   TextToImageParams, 
   ImageToImageParams, 
   GeneratedImage, 
-  ApiResponse 
+  ApiResponse,
+  LoRAResponse
 } from '@/types'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api'
@@ -56,7 +57,7 @@ api.interceptors.response.use(
 )
 
 // Direct RunPod API call
-async function callRunPodAPI(taskType: string, params: any, signal?: AbortSignal): Promise<GeneratedImage[]> {
+async function callRunPodAPI(taskType: string, params: any, signal?: AbortSignal): Promise<any> {
   console.log('Calling RunPod API directly:', { taskType, hasKey: !!RUNPOD_API_KEY, hasEndpoint: !!RUNPOD_ENDPOINT_ID })
   
   if (!RUNPOD_API_KEY || !RUNPOD_ENDPOINT_ID) {
@@ -68,7 +69,8 @@ async function callRunPodAPI(taskType: string, params: any, signal?: AbortSignal
   const runpodRequest = {
     input: {
       task_type: taskType,
-      params: params
+      params: params,
+      ...(taskType === 'switch-lora' && { lora_id: params.lora_id })
     }
   }
 
@@ -247,6 +249,58 @@ export async function getGenerationStatus(jobId: string) {
     return response.data
   } catch (error) {
     console.error('Failed to get generation status:', error)
+    throw error
+  }
+}
+
+// Get available LoRA models
+export async function getAvailableLoras(signal?: AbortSignal): Promise<LoRAResponse> {
+  try {
+    console.log('getAvailableLoras called with USE_RUNPOD_DIRECT:', USE_RUNPOD_DIRECT)
+    
+    if (USE_RUNPOD_DIRECT) {
+      return await callRunPodAPI('get-loras', {}, signal)
+    }
+
+    const response = await api.get<ApiResponse<LoRAResponse>>('/loras', {
+      signal: signal,
+    })
+    
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to get LoRA models')
+    }
+    
+    return response.data.data
+  } catch (error) {
+    console.error('Failed to get LoRA models:', error)
+    throw error
+  }
+}
+
+// Switch LoRA model
+export async function switchLoraModel(loraId: string, signal?: AbortSignal): Promise<string> {
+  try {
+    console.log('switchLoraModel called with USE_RUNPOD_DIRECT:', USE_RUNPOD_DIRECT)
+    
+    if (USE_RUNPOD_DIRECT) {
+      const result = await callRunPodAPI('switch-lora', { lora_id: loraId }, signal)
+      return result.message || 'LoRA switched successfully'
+    }
+
+    const response = await api.post<ApiResponse<{ message: string }>>('/loras/switch', 
+      { lora_id: loraId },
+      {
+        signal: signal,
+      }
+    )
+    
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to switch LoRA model')
+    }
+    
+    return response.data.data.message
+  } catch (error) {
+    console.error('Failed to switch LoRA model:', error)
     throw error
   }
 } 

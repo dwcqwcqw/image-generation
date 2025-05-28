@@ -20,6 +20,7 @@ import {
   Clock
 } from 'lucide-react'
 import ImageGallery from './ImageGallery'
+import LoRASelector from './LoRASelector'
 import { generateImageToImage } from '@/services/api'
 import type { ImageToImageParams, GeneratedImage } from '@/types'
 
@@ -46,6 +47,7 @@ export default function ImageToImagePanel() {
     seed: -1,
     numImages: 1,
     denoisingStrength: 0.7,
+    lora_model: 'flux-uncensored-v2',
   })
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -379,6 +381,13 @@ export default function ImageToImagePanel() {
                 Lower values preserve more of the original image
               </p>
             </div>
+
+            {/* LoRA Model Selector */}
+            <LoRASelector
+              value={params.lora_model || 'flux-uncensored-v2'}
+              onChange={(loraId) => setParams(prev => ({ ...prev, lora_model: loraId }))}
+              disabled={status === 'pending'}
+            />
 
             {/* Advanced Settings Toggle */}
             <button

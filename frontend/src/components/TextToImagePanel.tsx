@@ -16,6 +16,7 @@ import {
   Clock
 } from 'lucide-react'
 import ImageGallery from './ImageGallery'
+import LoRASelector from './LoRASelector'
 import { generateTextToImage } from '@/services/api'
 import type { TextToImageParams, GeneratedImage } from '@/types'
 
@@ -38,6 +39,7 @@ export default function TextToImagePanel() {
     cfgScale: 7,
     seed: -1,
     numImages: 1,
+    lora_model: 'flux-uncensored-v2',
   })
 
   const handleGenerate = async () => {
@@ -263,6 +265,13 @@ export default function TextToImagePanel() {
                 ))}
               </div>
             </div>
+
+            {/* LoRA Model Selector */}
+            <LoRASelector
+              value={params.lora_model || 'flux-uncensored-v2'}
+              onChange={(loraId) => setParams(prev => ({ ...prev, lora_model: loraId }))}
+              disabled={status === 'pending'}
+            />
 
             {/* Advanced Settings Toggle */}
             <button

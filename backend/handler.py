@@ -19,7 +19,34 @@ CLOUDFLARE_R2_ENDPOINT = os.getenv("CLOUDFLARE_R2_ENDPOINT")
 
 # 模型路径
 FLUX_BASE_PATH = "/runpod-volume/flux_base"
-FLUX_LORA_PATH = "/runpod-volume/Flux-Uncensored-V2"
+FLUX_LORA_BASE_PATH = "/runpod-volume"
+
+# 支持的LoRA模型列表
+AVAILABLE_LORAS = {
+    "flux-uncensored-v2": {
+        "name": "FLUX Uncensored V2",
+        "path": "/runpod-volume/Flux-Uncensored-V2",
+        "description": "Enhanced uncensored model for creative freedom"
+    },
+    "flux-realism": {
+        "name": "FLUX Realism",
+        "path": "/runpod-volume/Flux-Realism",
+        "description": "Photorealistic image generation"
+    },
+    "flux-anime": {
+        "name": "FLUX Anime",
+        "path": "/runpod-volume/Flux-Anime", 
+        "description": "Anime and manga style generation"
+    },
+    "flux-portrait": {
+        "name": "FLUX Portrait",
+        "path": "/runpod-volume/Flux-Portrait",
+        "description": "Professional portrait generation"
+    }
+}
+
+# 默认LoRA
+DEFAULT_LORA = "flux-uncensored-v2"
 
 # 初始化 Cloudflare R2 客户端
 r2_client = boto3.client(
@@ -34,6 +61,7 @@ r2_client = boto3.client(
 # 全局变量存储模型
 txt2img_pipe = None
 img2img_pipe = None
+current_lora = DEFAULT_LORA
 
 def get_device():
     """获取设备，兼容不同PyTorch版本"""
@@ -63,24 +91,41 @@ def load_models():
             # variant="fp16" if device == "cuda" else None
         )
         
-        # 加载 LoRA 权重
-        if os.path.exists(FLUX_LORA_PATH):
-            print(f"Loading LoRA weights from {FLUX_LORA_PATH}")
+        # 加载默认 LoRA 权重 (必选)
+        default_lora_path = AVAILABLE_LORAS[DEFAULT_LORA]["path"]
+        if os.path.exists(default_lora_path):
+            print(f"Loading default LoRA weights: {AVAILABLE_LORAS[DEFAULT_LORA]['name']} from {default_lora_path}")
             try:
-                txt2img_pipe.load_lora_weights(FLUX_LORA_PATH)
-                print("Loaded LoRA weights successfully")
+                txt2img_pipe.load_lora_weights(default_lora_path)
+                print(f"Successfully loaded LoRA: {AVAILABLE_LORAS[DEFAULT_LORA]['name']}")
             except ValueError as e:
                 if "PEFT backend is required" in str(e):
-                    print("Warning: PEFT backend not available, skipping LoRA weights loading")
-                    print("Install peft library for LoRA support: pip install peft")
+                    print("ERROR: PEFT backend is required for LoRA support")
+                    print("Please install: pip install peft>=0.8.0")
+                    raise RuntimeError("PEFT library is required but not installed")
                 else:
-                    print(f"Warning: Failed to load LoRA weights: {e}")
+                    print(f"ERROR: Failed to load LoRA weights: {e}")
+                    raise RuntimeError(f"Failed to load required LoRA model: {e}")
             except Exception as e:
-                print(f"Warning: Failed to load LoRA weights: {e}")
-                print("Continuing without LoRA weights...")
+                print(f"ERROR: Failed to load LoRA weights: {e}")
+                raise RuntimeError(f"Failed to load required LoRA model: {e}")
         else:
-            print(f"Warning: LoRA weights not found at {FLUX_LORA_PATH}")
-            print("Model will work without LoRA weights")
+            print(f"ERROR: Default LoRA weights not found at {default_lora_path}")
+            raise RuntimeError(f"Required LoRA model not found: {AVAILABLE_LORAS[DEFAULT_LORA]['name']}")
+        
+        # 验证其他可用的LoRA模型
+        available_loras = []
+        for lora_id, lora_info in AVAILABLE_LORAS.items():
+            if os.path.exists(lora_info["path"]):
+                available_loras.append(lora_id)
+                print(f"✓ Available LoRA: {lora_info['name']}")
+            else:
+                print(f"✗ Missing LoRA: {lora_info['name']} at {lora_info['path']}")
+        
+        if len(available_loras) == 0:
+            raise RuntimeError("No LoRA models found. LoRA models are required for this service.")
+        
+        print(f"Total available LoRA models: {len(available_loras)}")
         
         print("Moving pipeline to device...")
         txt2img_pipe = txt2img_pipe.to(device)
@@ -304,21 +349,121 @@ def image_to_image(params: dict) -> list:
     
     return results
 
+def get_available_loras() -> dict:
+    """获取可用的LoRA模型列表"""
+    available = {}
+    for lora_id, lora_info in AVAILABLE_LORAS.items():
+        if os.path.exists(lora_info["path"]):
+            available[lora_id] = {
+                "name": lora_info["name"],
+                "description": lora_info["description"],
+                "is_current": lora_id == current_lora
+            }
+    return available
+
+def switch_lora(lora_id: str) -> bool:
+    """切换LoRA模型"""
+    global txt2img_pipe, img2img_pipe, current_lora
+    
+    if lora_id not in AVAILABLE_LORAS:
+        raise ValueError(f"Unknown LoRA model: {lora_id}")
+    
+    lora_info = AVAILABLE_LORAS[lora_id]
+    lora_path = lora_info["path"]
+    
+    if not os.path.exists(lora_path):
+        raise ValueError(f"LoRA model not found: {lora_info['name']} at {lora_path}")
+    
+    if lora_id == current_lora:
+        print(f"LoRA {lora_info['name']} is already loaded")
+        return True
+    
+    try:
+        print(f"Switching to LoRA: {lora_info['name']}")
+        
+        # 卸载当前LoRA
+        txt2img_pipe.unload_lora_weights()
+        
+        # 加载新的LoRA
+        txt2img_pipe.load_lora_weights(lora_path)
+        
+        # 更新当前LoRA
+        current_lora = lora_id
+        
+        print(f"Successfully switched to LoRA: {lora_info['name']}")
+        return True
+        
+    except Exception as e:
+        print(f"Failed to switch LoRA: {str(e)}")
+        # 尝试恢复到之前的LoRA
+        try:
+            previous_lora_path = AVAILABLE_LORAS[current_lora]["path"]
+            txt2img_pipe.unload_lora_weights()
+            txt2img_pipe.load_lora_weights(previous_lora_path)
+        except:
+            pass
+        raise RuntimeError(f"Failed to switch LoRA model: {str(e)}")
+
 def handler(job):
     """RunPod 处理函数"""
     try:
         job_input = job['input']
         task_type = job_input.get('task_type')
         
-        if task_type == 'text-to-image':
-            results = text_to_image(job_input.get('params', {}))
+        if task_type == 'get-loras':
+            # 获取可用LoRA列表
+            available_loras = get_available_loras()
+            return {
+                'success': True,
+                'data': {
+                    'loras': available_loras,
+                    'current': current_lora
+                }
+            }
+            
+        elif task_type == 'switch-lora':
+            # 切换LoRA模型
+            lora_id = job_input.get('lora_id')
+            if not lora_id:
+                return {
+                    'success': False,
+                    'error': 'lora_id is required'
+                }
+            
+            switch_lora(lora_id)
+            return {
+                'success': True,
+                'data': {
+                    'current_lora': current_lora,
+                    'message': f'Switched to {AVAILABLE_LORAS[current_lora]["name"]}'
+                }
+            }
+        
+        elif task_type == 'text-to-image':
+            # 检查是否需要切换LoRA
+            params = job_input.get('params', {})
+            requested_lora = params.get('lora_model', current_lora)
+            
+            if requested_lora != current_lora:
+                print(f"Switching LoRA from {current_lora} to {requested_lora}")
+                switch_lora(requested_lora)
+            
+            results = text_to_image(params)
             return {
                 'success': True,
                 'data': results
             }
             
         elif task_type == 'image-to-image':
-            results = image_to_image(job_input.get('params', {}))
+            # 检查是否需要切换LoRA
+            params = job_input.get('params', {})
+            requested_lora = params.get('lora_model', current_lora)
+            
+            if requested_lora != current_lora:
+                print(f"Switching LoRA from {current_lora} to {requested_lora}")
+                switch_lora(requested_lora)
+            
+            results = image_to_image(params)
             return {
                 'success': True,
                 'data': results

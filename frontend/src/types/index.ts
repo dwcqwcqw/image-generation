@@ -7,12 +7,13 @@ export interface TextToImageParams {
   cfgScale: number
   seed: number
   numImages: number
+  lora_model?: string
 }
 
 export interface ImageToImageParams {
   prompt: string
   negativePrompt: string
-  image: File | string
+  image: string | File
   width: number
   height: number
   steps: number
@@ -20,6 +21,7 @@ export interface ImageToImageParams {
   seed: number
   numImages: number
   denoisingStrength: number
+  lora_model?: string
 }
 
 export interface GeneratedImage {
@@ -48,4 +50,16 @@ export interface GenerationJob {
   progress?: number
   result?: GeneratedImage[]
   error?: string
+}
+
+// LoRA模型接口
+export interface LoRAModel {
+  name: string
+  description: string
+  is_current: boolean
+}
+
+export interface LoRAResponse {
+  loras: Record<string, LoRAModel>
+  current: string
 } 
