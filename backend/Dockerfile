@@ -1,5 +1,5 @@
-# Use NVIDIA CUDA base image with PyTorch - 更新到更新的版本
-FROM runpod/pytorch:2.2.0-py3.10-cuda11.8.0-devel
+# Use NVIDIA CUDA base image with PyTorch - 使用确实存在的RunPod镜像版本
+FROM runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel
 
 # Set working directory
 WORKDIR /app
