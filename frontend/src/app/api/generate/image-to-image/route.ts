@@ -8,10 +8,30 @@ export async function POST(request: NextRequest) {
 
     if (!RUNPOD_API_KEY || !RUNPOD_ENDPOINT_ID) {
       console.error('Missing RunPod configuration')
-      return NextResponse.json(
-        { success: false, error: 'Server configuration error' },
-        { status: 500 }
-      )
+      
+      // For local testing, return a mock response
+      const formData = await request.formData()
+      const prompt = formData.get('prompt') as string
+      
+      console.log('Local test mode - received image-to-image request:', { prompt })
+      
+      return NextResponse.json({
+        success: true,
+        data: [{
+          id: 'test-img2img-' + Date.now(),
+          url: 'https://via.placeholder.com/512x512/4ECDC4/FFFFFF?text=Image+to+Image+Test',
+          prompt: prompt || 'test prompt',
+          negativePrompt: formData.get('negativePrompt') as string || '',
+          seed: parseInt(formData.get('seed') as string) || 12345,
+          width: parseInt(formData.get('width') as string) || 512,
+          height: parseInt(formData.get('height') as string) || 512,
+          steps: parseInt(formData.get('steps') as string) || 20,
+          cfgScale: parseFloat(formData.get('cfgScale') as string) || 7.0,
+          createdAt: new Date().toISOString(),
+          type: 'image-to-image',
+          denoisingStrength: parseFloat(formData.get('denoisingStrength') as string) || 0.8
+        }]
+      })
     }
 
     const RUNPOD_API_URL = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/runsync`

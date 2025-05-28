@@ -51,13 +51,16 @@ def load_models():
             FLUX_BASE_PATH,
             torch_dtype=torch.float16 if device == "cuda" else torch.float32,
             use_safetensors=True,
-            variant="fp16" if device == "cuda" else None
+            # Removed variant parameter to avoid fp16 variant error
+            # variant="fp16" if device == "cuda" else None
         )
         
         # 加载 LoRA 权重
         if os.path.exists(FLUX_LORA_PATH):
             txt2img_pipe.load_lora_weights(FLUX_LORA_PATH)
             print("Loaded LoRA weights")
+        else:
+            print(f"Warning: LoRA weights not found at {FLUX_LORA_PATH}")
         
         txt2img_pipe = txt2img_pipe.to(device)
         

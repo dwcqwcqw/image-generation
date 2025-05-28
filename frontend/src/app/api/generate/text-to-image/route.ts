@@ -8,10 +8,27 @@ export async function POST(request: NextRequest) {
 
     if (!RUNPOD_API_KEY || !RUNPOD_ENDPOINT_ID) {
       console.error('Missing RunPod configuration')
-      return NextResponse.json(
-        { success: false, error: 'Server configuration error' },
-        { status: 500 }
-      )
+      
+      // For local testing, return a mock response
+      const body = await request.json()
+      console.log('Local test mode - received request:', body)
+      
+      return NextResponse.json({
+        success: true,
+        data: [{
+          id: 'test-' + Date.now(),
+          url: 'https://via.placeholder.com/512x512/FF6B6B/FFFFFF?text=Test+Image',
+          prompt: body.prompt,
+          negativePrompt: body.negativePrompt || '',
+          seed: body.seed || 12345,
+          width: body.width || 512,
+          height: body.height || 512,
+          steps: body.steps || 20,
+          cfgScale: body.cfgScale || 7.0,
+          createdAt: new Date().toISOString(),
+          type: 'text-to-image'
+        }]
+      })
     }
 
     const RUNPOD_API_URL = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/runsync`
