@@ -1146,17 +1146,5 @@ def handler(job):
             'error': str(e)
         }
 
-if __name__ == "__main__":
-    # 在启动时加载模型
-    try:
-        load_models()
-        print("Starting RunPod serverless...")
-        
-        # 启动 RunPod serverless
-        runpod.serverless.start({
-            "handler": handler
-        })
-    except Exception as e:
-        print(f"Failed to start serverless: {str(e)}")
-        traceback.print_exc()
-        raise e 
+# Note: The serverless worker will be started by start_debug.py
+# This allows for better debugging and health checks before startup 

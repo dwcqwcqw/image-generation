@@ -1,5 +1,5 @@
 # Use NVIDIA CUDA base image with PyTorch
-# Build: $(date +%s) - Force cache refresh
+# Build: $(date +%s) - Force cache refresh: 1735571291
 FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel
 
 # Set working directory
@@ -38,6 +38,9 @@ RUN pip install --no-cache-dir --timeout 300 -r requirements.txt || \
 # Copy application code
 COPY backend/handler.py .
 COPY backend/start_debug.py .
+
+# Make scripts executable
+RUN chmod +x start_debug.py
 
 # Create volume mount points for models (including new anime models)
 RUN mkdir -p /runpod-volume \

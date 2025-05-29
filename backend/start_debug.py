@@ -179,9 +179,20 @@ def main():
         print_section("STARTING MAIN HANDLER")
         print("All checks completed. Starting handler.py...")
         
-        # Import and run the main handler
+        # Import the handler module
         import handler
         print("✓ Handler imported successfully")
+        
+        # Load models and start the RunPod serverless worker
+        print("Loading models...")
+        handler.load_models()
+        print("✓ Models loaded successfully")
+        
+        print("Starting RunPod serverless worker...")
+        import runpod
+        runpod.serverless.start({
+            "handler": handler.handler
+        })
         
     except Exception as e:
         print_section("STARTUP ERROR")
