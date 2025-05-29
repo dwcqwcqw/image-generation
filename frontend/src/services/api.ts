@@ -317,55 +317,116 @@ export async function uploadImage(file: File): Promise<string> {
 // Download image
 export async function downloadImage(url: string, filename: string): Promise<void> {
   try {
-    console.log('[Download] Attempting direct download:', url)
+    console.log('[Download] Starting download:', url)
     
-    // 首先尝试直接下载，依赖CORS配置
-    const response = await fetch(url)
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    // 方法1: 尝试创建下载链接（最可靠）
+    try {
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      link.target = '_blank'
+      link.rel = 'noopener noreferrer'
+      
+      // 添加到DOM，点击，然后移除
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      
+      console.log('[Download] Direct link download initiated')
+      return
+    } catch (linkError) {
+      console.log('[Download] Direct link failed, trying fetch...', linkError)
     }
     
-    const blob = await response.blob()
-    
-    console.log('[Download] Blob size:', blob.size, 'bytes')
-    
-    const objectUrl = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = objectUrl
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    window.URL.revokeObjectURL(objectUrl)
-  } catch (error) {
-    console.error('Direct download failed:', error)
-    
-    // 如果直接下载失败，尝试使用代理（仅在开发环境或支持API路由的平台）
+    // 方法2: 使用fetch下载
     try {
-      console.log('[Download] Trying proxy download...')
-      const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(url)}`
-      const proxyResponse = await fetch(proxyUrl)
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'image/*',
+        },
+      })
       
-      if (!proxyResponse.ok) {
-        throw new Error(`Proxy failed: HTTP ${proxyResponse.status}`)
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
       
-      const blob = await proxyResponse.blob()
-      const objectUrl = window.URL.createObjectURL(blob)
+      const blob = await response.blob()
+      console.log('[Download] Fetch successful, blob size:', blob.size, 'bytes')
+      
+      // 创建blob URL并下载
+      const blobUrl = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
-      link.href = objectUrl
+      link.href = blobUrl
       link.download = filename
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
-      window.URL.revokeObjectURL(objectUrl)
-    } catch (proxyError) {
-      console.error('Proxy download also failed:', proxyError)
-      // 最后回退：在新窗口打开图片让用户手动保存
-      window.open(url, '_blank')
-      throw new Error('Automatic download failed. Image opened in new tab for manual saving.')
+      window.URL.revokeObjectURL(blobUrl)
+      
+      console.log('[Download] Fetch download successful')
+      return
+    } catch (fetchError) {
+      console.log('[Download] Fetch failed, trying canvas method...', fetchError)
     }
+    
+    // 方法3: 使用canvas转换（适用于CORS限制的图片）
+    try {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      
+      await new Promise((resolve, reject) => {
+        img.onload = resolve
+        img.onerror = reject
+        img.src = url
+      })
+      
+      // 创建canvas并绘制图片
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      canvas.width = img.width
+      canvas.height = img.height
+      
+      if (ctx) {
+        ctx.drawImage(img, 0, 0)
+        
+        // 转换为blob并下载
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const blobUrl = window.URL.createObjectURL(blob)
+            const link = document.createElement('a')
+            link.href = blobUrl
+            link.download = filename
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            window.URL.revokeObjectURL(blobUrl)
+            console.log('[Download] Canvas download successful')
+          } else {
+            throw new Error('Failed to create blob from canvas')
+          }
+        }, 'image/png')
+        return
+      }
+    } catch (canvasError) {
+      console.log('[Download] Canvas method failed:', canvasError)
+    }
+    
+    // 方法4: 最后回退 - 在新窗口打开
+    console.log('[Download] All methods failed, opening in new window')
+    const newWindow = window.open(url, '_blank', 'noopener,noreferrer')
+    if (newWindow) {
+      // 给用户一些提示
+      setTimeout(() => {
+        alert('图片已在新窗口打开，请右键点击图片选择"图片另存为"来下载')
+      }, 1000)
+    } else {
+      throw new Error('无法打开新窗口，请检查浏览器弹窗设置')
+    }
+    
+  } catch (error) {
+    console.error('[Download] All download methods failed:', error)
+    throw new Error(`下载失败: ${error instanceof Error ? error.message : '未知错误'}。请尝试右键点击图片选择"图片另存为"`)
   }
 }
 

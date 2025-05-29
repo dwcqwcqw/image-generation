@@ -328,7 +328,6 @@ def load_models():
                     tokenizer=[txt2img_pipe.tokenizer, txt2img_pipe.tokenizer_2],
                     text_encoder=[txt2img_pipe.text_encoder, txt2img_pipe.text_encoder_2],
                     device=txt2img_pipe.device,
-                    dtype=torch.float16 if device == "cuda" else torch.float32,
                 )
                 print("✅ Compel initialized - now supports prompts up to 512 tokens!")
             except Exception as e:

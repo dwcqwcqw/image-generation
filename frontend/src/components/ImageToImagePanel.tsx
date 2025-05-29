@@ -40,7 +40,7 @@ export default function ImageToImagePanel() {
   
   const [params, setParams] = useState<ImageToImageParams>({
     prompt: '',
-    negativePrompt: '',
+    negativePrompt: 'low quality, blurry, bad anatomy, deformed hands, extra fingers, missing fingers, deformed limbs, extra limbs, bad proportions, malformed genitals, watermark, signature, text',
     image: '',
     width: 512,
     height: 512,
