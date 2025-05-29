@@ -18,7 +18,7 @@ import {
 import ImageGallery from './ImageGallery'
 import LoRASelector from './LoRASelector'
 import { generateTextToImage } from '@/services/api'
-import type { TextToImageParams, GeneratedImage } from '@/types'
+import type { TextToImageParams, GeneratedImage, LoRAConfig } from '@/types'
 
 type GenerationStatus = 'idle' | 'pending' | 'success' | 'error' | 'cancelled'
 
@@ -32,16 +32,22 @@ export default function TextToImagePanel() {
   const [generationProgress, setGenerationProgress] = useState<string>('')
   const abortControllerRef = useRef<AbortController | null>(null)
   
+  // 默认LoRA配置
+  const defaultLoRAConfig: LoRAConfig = {
+    flux_nsfw: 1.0,
+    UltraRealPhoto: 1.0
+  }
+  
   const [params, setParams] = useState<TextToImageParams>({
     prompt: '',
-    negativePrompt: 'low quality, blurry, bad anatomy, deformed hands, extra fingers, missing fingers, deformed limbs, extra limbs, bad proportions, malformed genitals, watermark, signature, text',
+    negativePrompt: 'low quality, blurry, bad anatomy, deformed hands, extra fingers, missing fingers, deformed limbs, extra limbs, bad proportions, malformed genitals, watermark',
     width: 512,
     height: 512,
     steps: 20,
     cfgScale: 7.0,
     seed: -1,
     numImages: 1,
-    lora_model: 'flux-nsfw',
+    lora_config: defaultLoRAConfig,
   })
 
   const handleGenerate = async () => {
@@ -268,8 +274,8 @@ export default function TextToImagePanel() {
 
             {/* LoRA Model Selector */}
             <LoRASelector
-              value={params.lora_model || 'flux-nsfw'}
-              onChange={(loraId) => setParams(prev => ({ ...prev, lora_model: loraId }))}
+              value={params.lora_config || defaultLoRAConfig}
+              onChange={(loraConfig) => setParams(prev => ({ ...prev, lora_config: loraConfig }))}
               disabled={status === 'pending'}
             />
 

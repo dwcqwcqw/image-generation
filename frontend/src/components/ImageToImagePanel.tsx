@@ -22,7 +22,7 @@ import {
 import ImageGallery from './ImageGallery'
 import LoRASelector from './LoRASelector'
 import { generateImageToImage } from '@/services/api'
-import type { ImageToImageParams, GeneratedImage } from '@/types'
+import type { ImageToImageParams, GeneratedImage, LoRAConfig } from '@/types'
 
 type GenerationStatus = 'idle' | 'pending' | 'success' | 'error' | 'cancelled'
 
@@ -38,9 +38,15 @@ export default function ImageToImagePanel() {
   const [generationProgress, setGenerationProgress] = useState<string>('')
   const abortControllerRef = useRef<AbortController | null>(null)
   
+  // 默认LoRA配置
+  const defaultLoRAConfig: LoRAConfig = {
+    flux_nsfw: 1.0,
+    UltraRealPhoto: 1.0
+  }
+  
   const [params, setParams] = useState<ImageToImageParams>({
     prompt: '',
-    negativePrompt: 'low quality, blurry, bad anatomy, deformed hands, extra fingers, missing fingers, deformed limbs, extra limbs, bad proportions, malformed genitals, watermark, signature, text',
+    negativePrompt: 'low quality, blurry, bad anatomy, deformed hands, extra fingers, missing fingers, deformed limbs, extra limbs, bad proportions, malformed genitals, watermark',
     image: '',
     width: 512,
     height: 512,
@@ -49,7 +55,7 @@ export default function ImageToImagePanel() {
     seed: -1,
     numImages: 1,
     denoisingStrength: 0.7,
-    lora_model: 'flux-nsfw',
+    lora_config: defaultLoRAConfig,
   })
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -397,8 +403,8 @@ export default function ImageToImagePanel() {
 
             {/* LoRA Model Selector */}
             <LoRASelector
-              value={params.lora_model || 'flux-nsfw'}
-              onChange={(loraId) => setParams(prev => ({ ...prev, lora_model: loraId }))}
+              value={params.lora_config || defaultLoRAConfig}
+              onChange={(loraConfig) => setParams(prev => ({ ...prev, lora_config: loraConfig }))}
               disabled={status === 'pending'}
             />
 

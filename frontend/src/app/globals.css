@@ -43,4 +43,25 @@
   .slider::-moz-range-thumb {
     @apply w-4 h-4 bg-primary-600 rounded-full cursor-pointer border-none;
   }
+  
+  /* LoRA Slider Styles */
+  .slider-green {
+    @apply w-full h-2 bg-green-200 rounded-lg appearance-none cursor-pointer;
+  }
+  
+  .slider-green::-webkit-slider-thumb {
+    @apply appearance-none w-4 h-4 bg-green-600 rounded-full cursor-pointer shadow-sm;
+  }
+  
+  .slider-green::-moz-range-thumb {
+    @apply w-4 h-4 bg-green-600 rounded-full cursor-pointer border-none shadow-sm;
+  }
+  
+  .slider-green:hover::-webkit-slider-thumb {
+    @apply bg-green-700;
+  }
+  
+  .slider-green:hover::-moz-range-thumb {
+    @apply bg-green-700;
+  }
 } 

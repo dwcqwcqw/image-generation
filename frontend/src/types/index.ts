@@ -1,3 +1,8 @@
+// LoRA配置类型
+export interface LoRAConfig {
+  [loraId: string]: number // LoRA ID -> 权重 (0-1)
+}
+
 export interface TextToImageParams {
   prompt: string
   negativePrompt: string
@@ -7,7 +12,8 @@ export interface TextToImageParams {
   cfgScale: number
   seed: number
   numImages: number
-  lora_model?: string
+  lora_config?: LoRAConfig // 支持多LoRA配置
+  lora_model?: string // 保留兼容性
 }
 
 export interface ImageToImageParams {
@@ -21,7 +27,8 @@ export interface ImageToImageParams {
   seed: number
   numImages: number
   denoisingStrength: number
-  lora_model?: string
+  lora_config?: LoRAConfig // 支持多LoRA配置
+  lora_model?: string // 保留兼容性
 }
 
 export interface GeneratedImage {
@@ -56,10 +63,11 @@ export interface GenerationJob {
 export interface LoRAModel {
   name: string
   description: string
-  is_current: boolean
+  default_weight: number
+  current_weight: number
 }
 
 export interface LoRAResponse {
   loras: Record<string, LoRAModel>
-  current: string
+  current_config: LoRAConfig
 } 

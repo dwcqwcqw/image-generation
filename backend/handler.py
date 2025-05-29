@@ -72,19 +72,71 @@ CLOUDFLARE_R2_PUBLIC_DOMAIN = os.getenv("CLOUDFLARE_R2_PUBLIC_DOMAIN")  # 可选
 
 # 模型路径
 FLUX_BASE_PATH = "/runpod-volume/flux_base"
-FLUX_LORA_BASE_PATH = "/runpod-volume"
+FLUX_LORA_BASE_PATH = "/runpod-volume/lora"
 
-# 支持的LoRA模型列表
+# 支持的LoRA模型列表 - 支持多LoRA和权重设置
 AVAILABLE_LORAS = {
-    "flux-nsfw": {
+    "flux_nsfw": {
         "name": "FLUX NSFW",
-        "path": "/runpod-volume/flux_nsfw",
-        "description": "NSFW content generation model with enhanced capabilities"
+        "path": "/runpod-volume/lora/flux_nsfw",
+        "description": "NSFW content generation model",
+        "default_weight": 1.0
+    },
+    "UltraRealPhoto": {
+        "name": "Ultra Real Photo",
+        "path": "/runpod-volume/lora/UltraRealPhoto.safetensors",
+        "description": "Ultra realistic photo generation",
+        "default_weight": 1.0
+    },
+    "Chastity_Cage": {
+        "name": "Chastity Cage",
+        "path": "/runpod-volume/lora/Chastity_Cage.safetensors",
+        "description": "Chastity device focused generation",
+        "default_weight": 0.5
+    },
+    "DynamicPenis": {
+        "name": "Dynamic Penis",
+        "path": "/runpod-volume/lora/DynamicPenis.safetensors",
+        "description": "Dynamic male anatomy generation",
+        "default_weight": 0.5
+    },
+    "OnOff": {
+        "name": "On Off",
+        "path": "/runpod-volume/lora/OnOff.safetensors",
+        "description": "Clothing on/off variations",
+        "default_weight": 0.5
+    },
+    "Puppy_mask": {
+        "name": "Puppy Mask",
+        "path": "/runpod-volume/lora/Puppy_mask.safetensors",
+        "description": "Puppy mask and pet play content",
+        "default_weight": 0.5
+    },
+    "asianman": {
+        "name": "Asian Man",
+        "path": "/runpod-volume/lora/asianman.safetensors",
+        "description": "Asian male character generation",
+        "default_weight": 0.5
+    },
+    "butt-and-feet": {
+        "name": "Butt and Feet",
+        "path": "/runpod-volume/lora/butt-and-feet.safetensors",
+        "description": "Focus on lower body parts",
+        "default_weight": 0.5
+    },
+    "cumshots": {
+        "name": "Cumshots",
+        "path": "/runpod-volume/lora/cumshots.safetensors",
+        "description": "Adult climax content generation",
+        "default_weight": 0.5
     }
 }
 
-# 默认LoRA
-DEFAULT_LORA = "flux-nsfw"
+# 默认LoRA配置
+DEFAULT_LORA_CONFIG = {
+    "flux_nsfw": 1.0,
+    "UltraRealPhoto": 1.0
+}
 
 # 初始化 Cloudflare R2 客户端
 r2_client = None
@@ -108,7 +160,7 @@ else:
 # 全局变量存储模型
 txt2img_pipe = None
 img2img_pipe = None
-current_lora = DEFAULT_LORA
+current_lora_config = DEFAULT_LORA_CONFIG.copy()
 
 # 全局变量存储compel处理器
 compel_proc = None
@@ -219,13 +271,14 @@ def load_models():
         
         # 加载默认 LoRA 权重 (必选)
         lora_start_time = datetime.now()
-        default_lora_path = AVAILABLE_LORAS[DEFAULT_LORA]["path"]
+        default_lora_key = "flux_nsfw"  # 主要默认LoRA
+        default_lora_path = AVAILABLE_LORAS[default_lora_key]["path"]
         if os.path.exists(default_lora_path):
-            print(f"🎨 Loading default LoRA: {AVAILABLE_LORAS[DEFAULT_LORA]['name']}")
+            print(f"🎨 Loading default LoRA: {AVAILABLE_LORAS[default_lora_key]['name']}")
             try:
                 txt2img_pipe.load_lora_weights(default_lora_path)
                 lora_time = (datetime.now() - lora_start_time).total_seconds()
-                print(f"✅ LoRA loaded in {lora_time:.2f}s: {AVAILABLE_LORAS[DEFAULT_LORA]['name']}")
+                print(f"✅ LoRA loaded in {lora_time:.2f}s: {AVAILABLE_LORAS[default_lora_key]['name']}")
             except ValueError as e:
                 if "PEFT backend is required" in str(e):
                     print("❌ ERROR: PEFT backend is required for LoRA support")
@@ -239,7 +292,7 @@ def load_models():
                 raise RuntimeError(f"Failed to load required LoRA model: {e}")
         else:
             print(f"❌ ERROR: Default LoRA weights not found at {default_lora_path}")
-            raise RuntimeError(f"Required LoRA model not found: {AVAILABLE_LORAS[DEFAULT_LORA]['name']}")
+            raise RuntimeError(f"Required LoRA model not found: {AVAILABLE_LORAS[default_lora_key]['name']}")
         
         # 验证其他可用的LoRA模型
         available_loras = []
@@ -759,13 +812,68 @@ def get_available_loras() -> dict:
             available[lora_id] = {
                 "name": lora_info["name"],
                 "description": lora_info["description"],
-                "is_current": lora_id == current_lora
+                "default_weight": lora_info["default_weight"],
+                "current_weight": current_lora_config.get(lora_id, 0.0)
             }
     return available
 
+def load_multiple_loras(lora_config: dict) -> bool:
+    """加载多个LoRA模型，每个都有自己的权重"""
+    global txt2img_pipe, current_lora_config
+    
+    if not lora_config:
+        print("No LoRA configuration provided")
+        return False
+    
+    try:
+        print(f"Loading multiple LoRAs with config: {lora_config}")
+        
+        # 先卸载所有现有的LoRA
+        txt2img_pipe.unload_lora_weights()
+        
+        # 准备LoRA权重和适配器名称
+        adapter_names = []
+        adapter_weights = []
+        
+        for lora_id, weight in lora_config.items():
+            if weight > 0 and lora_id in AVAILABLE_LORAS:
+                lora_path = AVAILABLE_LORAS[lora_id]["path"]
+                if os.path.exists(lora_path):
+                    # 加载LoRA适配器
+                    adapter_name = f"lora_{lora_id}"
+                    txt2img_pipe.load_lora_weights(lora_path, adapter_name=adapter_name)
+                    adapter_names.append(adapter_name)
+                    adapter_weights.append(weight)
+                    print(f"✅ Loaded LoRA {AVAILABLE_LORAS[lora_id]['name']} with weight {weight}")
+                else:
+                    print(f"⚠️ LoRA path not found: {lora_path}")
+        
+        if adapter_names:
+            # 设置混合权重
+            txt2img_pipe.set_adapters(adapter_names, adapter_weights)
+            current_lora_config = lora_config.copy()
+            print(f"✅ Successfully loaded {len(adapter_names)} LoRA adapters")
+            return True
+        else:
+            print("❌ No valid LoRA adapters could be loaded")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Error loading multiple LoRAs: {str(e)}")
+        # 尝试恢复到默认配置
+        try:
+            txt2img_pipe.unload_lora_weights()
+            default_lora_path = AVAILABLE_LORAS["flux_nsfw"]["path"]
+            txt2img_pipe.load_lora_weights(default_lora_path)
+            current_lora_config = {"flux_nsfw": 1.0}
+            print("Recovered to default LoRA configuration")
+        except Exception as recovery_error:
+            print(f"Failed to recover to default LoRA: {recovery_error}")
+        return False
+
 def switch_lora(lora_id: str) -> bool:
     """切换LoRA模型 - 优化版本"""
-    global txt2img_pipe, img2img_pipe, current_lora
+    global txt2img_pipe, img2img_pipe, current_lora_config
     
     if lora_id not in AVAILABLE_LORAS:
         raise ValueError(f"Unknown LoRA model: {lora_id}")
@@ -777,12 +885,12 @@ def switch_lora(lora_id: str) -> bool:
         raise ValueError(f"LoRA model not found: {lora_info['name']} at {lora_path}")
     
     # 优化：如果已经是当前LoRA，直接返回，避免不必要的重新加载
-    if lora_id == current_lora:
+    if lora_id == current_lora_config["flux_nsfw"]:
         print(f"LoRA {lora_info['name']} is already loaded - skipping switch")
         return True
     
     try:
-        print(f"Switching LoRA from {AVAILABLE_LORAS[current_lora]['name']} to {lora_info['name']}")
+        print(f"Switching LoRA from {AVAILABLE_LORAS[current_lora_config['flux_nsfw']]['name']} to {lora_info['name']}")
         
         # 卸载当前LoRA
         txt2img_pipe.unload_lora_weights()
@@ -791,7 +899,7 @@ def switch_lora(lora_id: str) -> bool:
         txt2img_pipe.load_lora_weights(lora_path)
         
         # 更新当前LoRA
-        current_lora = lora_id
+        current_lora_config["flux_nsfw"] = lora_id
         
         print(f"Successfully switched to LoRA: {lora_info['name']}")
         return True
@@ -800,10 +908,10 @@ def switch_lora(lora_id: str) -> bool:
         print(f"Failed to switch LoRA: {str(e)}")
         # 尝试恢复到之前的LoRA
         try:
-            previous_lora_path = AVAILABLE_LORAS[current_lora]["path"]
+            previous_lora_path = AVAILABLE_LORAS[current_lora_config["flux_nsfw"]]["path"]
             txt2img_pipe.unload_lora_weights()
             txt2img_pipe.load_lora_weights(previous_lora_path)
-            print(f"Recovered to previous LoRA: {AVAILABLE_LORAS[current_lora]['name']}")
+            print(f"Recovered to previous LoRA: {AVAILABLE_LORAS[current_lora_config['flux_nsfw']]['name']}")
         except Exception as recovery_error:
             print(f"Failed to recover LoRA: {recovery_error}")
         raise RuntimeError(f"Failed to switch LoRA model: {str(e)}")
@@ -821,12 +929,12 @@ def handler(job):
                 'success': True,
                 'data': {
                     'loras': available_loras,
-                    'current': current_lora
+                    'current_config': current_lora_config
                 }
             }
             
         elif task_type == 'switch-lora':
-            # 切换LoRA模型
+            # 切换LoRA模型（单个LoRA兼容性支持）
             lora_id = job_input.get('lora_id')
             if not lora_id:
                 return {
@@ -834,33 +942,58 @@ def handler(job):
                     'error': 'lora_id is required'
                 }
             
-            # 优化：检查是否需要实际切换
-            if lora_id == current_lora:
+            # 兼容单LoRA切换
+            single_lora_config = {lora_id: 1.0}
+            success = load_multiple_loras(single_lora_config)
+            
+            if success:
                 return {
                     'success': True,
                     'data': {
-                        'current_lora': current_lora,
-                        'message': f'{AVAILABLE_LORAS[current_lora]["name"]} is already active'
+                        'current_config': current_lora_config,
+                        'message': f'Switched to {AVAILABLE_LORAS[lora_id]["name"]}'
                     }
                 }
-            
-            switch_lora(lora_id)
-            return {
-                'success': True,
-                'data': {
-                    'current_lora': current_lora,
-                    'message': f'Switched to {AVAILABLE_LORAS[current_lora]["name"]}'
+            else:
+                return {
+                    'success': False,
+                    'error': f'Failed to switch to {lora_id}'
                 }
-            }
+        
+        elif task_type == 'load-loras':
+            # 加载多个LoRA模型配置
+            lora_config = job_input.get('lora_config', {})
+            if not lora_config:
+                return {
+                    'success': False,
+                    'error': 'lora_config is required'
+                }
+            
+            success = load_multiple_loras(lora_config)
+            
+            if success:
+                return {
+                    'success': True,
+                    'data': {
+                        'current_config': current_lora_config,
+                        'message': f'Loaded {len([k for k, v in lora_config.items() if v > 0])} LoRA models'
+                    }
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': 'Failed to load LoRA configuration'
+                }
         
         elif task_type == 'text-to-image':
-            # 优化：只在需要时切换LoRA
+            # 优化：支持多LoRA配置
             params = job_input.get('params', {})
-            requested_lora = params.get('lora_model', current_lora)
+            requested_lora_config = params.get('lora_config', current_lora_config)
             
-            if requested_lora and requested_lora != current_lora:
-                print(f"Auto-switching LoRA from {current_lora} to {requested_lora} for generation")
-                switch_lora(requested_lora)
+            # 检查是否需要更新LoRA配置
+            if requested_lora_config != current_lora_config:
+                print(f"Auto-loading LoRA config for generation: {requested_lora_config}")
+                load_multiple_loras(requested_lora_config)
             
             results = text_to_image(params)
             return {
@@ -869,13 +1002,14 @@ def handler(job):
             }
             
         elif task_type == 'image-to-image':
-            # 优化：只在需要时切换LoRA
+            # 优化：支持多LoRA配置
             params = job_input.get('params', {})
-            requested_lora = params.get('lora_model', current_lora)
+            requested_lora_config = params.get('lora_config', current_lora_config)
             
-            if requested_lora and requested_lora != current_lora:
-                print(f"Auto-switching LoRA from {current_lora} to {requested_lora} for generation")
-                switch_lora(requested_lora)
+            # 检查是否需要更新LoRA配置
+            if requested_lora_config != current_lora_config:
+                print(f"Auto-loading LoRA config for generation: {requested_lora_config}")
+                load_multiple_loras(requested_lora_config)
             
             results = image_to_image(params)
             return {
