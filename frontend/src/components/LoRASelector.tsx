@@ -1,9 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Wand2 } from 'lucide-react'
+import { Switch } from '@headlessui/react'
 import type { LoRAConfig, BaseModelType } from '@/types'
-import { BASE_MODELS } from './BaseModelSelector'
 
 interface LoRASelectorProps {
   value: LoRAConfig
@@ -12,87 +10,120 @@ interface LoRASelectorProps {
   disabled?: boolean
 }
 
-export default function LoRASelector({ value, onChange, baseModel, disabled }: LoRASelectorProps) {
-  const [localConfig, setLocalConfig] = useState<LoRAConfig>(value)
-
-  // 同步外部值变化
-  useEffect(() => {
-    setLocalConfig(value)
-  }, [value])
-
-  // 根据基础模型获取对应的LoRA信息
-  const getLoRAInfo = () => {
-    const modelConfig = BASE_MODELS[baseModel]
-    return {
-      id: baseModel === 'realistic' ? 'flux_nsfw' : 'gayporn',
-      name: modelConfig.loraName,
-      description: baseModel === 'realistic' 
-        ? 'NSFW真人内容生成模型' 
-        : 'NSFW动漫内容生成模型'
+export default function LoRASelector({ value, onChange, baseModel, disabled = false }: LoRASelectorProps) {
+  // Get the active LoRA for the current base model
+  const getActiveLoRA = () => {
+    if (baseModel === 'realistic') {
+      return {
+        id: 'flux_nsfw',
+        name: 'FLUX NSFW',
+        description: 'Enhanced realistic human content generation'
+      }
+    } else {
+      return {
+        id: 'gayporn',
+        name: 'Gayporn',
+        description: 'Specialized anime-style content generation'
+      }
     }
   }
 
-  const loraInfo = getLoRAInfo()
-  const loraKey = loraInfo.id
+  const activeLoRA = getActiveLoRA()
+  const isEnabled = (value[activeLoRA.id as keyof LoRAConfig] || 0) > 0
 
   const handleToggle = (enabled: boolean) => {
-    const newConfig = { [loraKey]: enabled ? 1.0 : 0.0 }
-    setLocalConfig(newConfig)
+    const newConfig: LoRAConfig = {
+      ...value,
+      [activeLoRA.id]: enabled ? 1.0 : 0
+    }
     onChange(newConfig)
   }
 
-  const isEnabled = (localConfig[loraKey] || 0) > 0
-
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
         <label className="block text-sm font-medium text-gray-700">
-          LoRA 增强模型
+          LoRA Enhancement
         </label>
       </div>
 
-      {/* LoRA Toggle */}
-      <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+      {/* LoRA Toggle Card */}
+      <div className={`p-4 rounded-lg border-2 transition-all duration-200 ${
+        isEnabled
+          ? 'border-primary-500 bg-primary-50'
+          : 'border-gray-200 bg-white'
+      } ${disabled ? 'opacity-50' : ''}`}>
         <div className="flex items-center justify-between">
           <div className="flex-1">
-            <div className="flex items-center space-x-2">
-              <Wand2 className={`w-4 h-4 ${isEnabled ? 'text-green-600' : 'text-gray-400'}`} />
-              <span className="font-medium text-gray-900">{loraInfo.name}</span>
-              <span className={`text-sm font-medium ${isEnabled ? 'text-green-700' : 'text-gray-500'}`}>
-                {isEnabled ? 'ON' : 'OFF'}
-              </span>
+            <div className="flex items-center space-x-3">
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                isEnabled ? 'bg-primary-100' : 'bg-gray-100'
+              }`}>
+                <span className={`text-lg font-bold ${
+                  isEnabled ? 'text-primary-600' : 'text-gray-600'
+                }`}>
+                  ✨
+                </span>
+              </div>
+              <div>
+                <h3 className={`font-medium ${
+                  isEnabled ? 'text-primary-900' : 'text-gray-900'
+                }`}>
+                  {activeLoRA.name}
+                </h3>
+                <p className={`text-sm ${
+                  isEnabled ? 'text-primary-700' : 'text-gray-600'
+                }`}>
+                  {activeLoRA.description}
+                </p>
+              </div>
             </div>
-            <p className="text-xs text-gray-600 mt-1">{loraInfo.description}</p>
           </div>
           
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              className="sr-only"
-              checked={isEnabled}
-              onChange={(e) => handleToggle(e.target.checked)}
-              disabled={disabled}
-            />
-            <div className={`w-11 h-6 rounded-full transition-colors duration-200 ease-in-out ${
-              isEnabled ? 'bg-green-600' : 'bg-gray-300'
-            } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
-              <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${
+          <Switch
+            checked={isEnabled}
+            onChange={handleToggle}
+            disabled={disabled}
+            className={`${
+              isEnabled ? 'bg-primary-600' : 'bg-gray-200'
+            } relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 ${
+              disabled ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
+          >
+            <span className="sr-only">Toggle LoRA enhancement</span>
+            <span
+              aria-hidden="true"
+              className={`${
                 isEnabled ? 'translate-x-5' : 'translate-x-0'
-              } mt-0.5 ml-0.5`}></div>
-            </div>
-          </label>
+              } pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out`}
+            />
+          </Switch>
         </div>
       </div>
 
-      {/* Info */}
-      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+      {/* Status Info */}
+      <div className={`p-3 rounded-lg border ${
+        isEnabled 
+          ? 'bg-green-50 border-green-200' 
+          : 'bg-gray-50 border-gray-200'
+      }`}>
         <div className="flex items-start space-x-2">
-          <Wand2 className="w-4 h-4 text-blue-600 mt-0.5" />
-          <div className="text-xs text-blue-700">
-            <p className="font-medium mb-1">💡 LoRA 说明:</p>
-            <p className="text-blue-600">
-              LoRA模型会根据选择的基础模型风格自动配置。
-              开启后可以生成更符合预期的内容效果。
+          <div className={`w-4 h-4 rounded-full flex-shrink-0 mt-0.5 ${
+            isEnabled ? 'bg-green-500' : 'bg-gray-400'
+          }`}></div>
+          <div className="text-xs">
+            <p className={`font-medium ${
+              isEnabled ? 'text-green-800' : 'text-gray-700'
+            }`}>
+              {isEnabled ? 'LoRA Enhanced' : 'Standard Generation'}
+            </p>
+            <p className={`mt-1 ${
+              isEnabled ? 'text-green-700' : 'text-gray-600'
+            }`}>
+              {isEnabled 
+                ? `Using ${activeLoRA.name} enhancement for improved quality and style consistency.`
+                : 'Using base model only. Enable LoRA for enhanced results.'
+              }
             </p>
           </div>
         </div>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import React, { useState, useCallback, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { toast } from 'react-hot-toast'
 import Image from 'next/image'
@@ -21,10 +21,10 @@ import {
 } from 'lucide-react'
 import ImageGallery from './ImageGallery'
 import LoRASelector from './LoRASelector'
-import BaseModelSelector from './BaseModelSelector'
+import { useBaseModel } from '@/app/page'
 import { generateImageToImage } from '@/services/api'
 import { downloadAllImages as downloadAllImagesUtil } from '@/utils/imageProxy'
-import type { ImageToImageParams, GeneratedImage, LoRAConfig, BaseModelType } from '@/types'
+import type { ImageToImageParams, GeneratedImage } from '@/types'
 
 type GenerationStatus = 'idle' | 'pending' | 'success' | 'error' | 'cancelled'
 
@@ -40,10 +40,8 @@ export default function ImageToImagePanel() {
   const [generationProgress, setGenerationProgress] = useState<string>('')
   const abortControllerRef = useRef<AbortController | null>(null)
   
-  // 默认LoRA配置 - 简化为只使用FLUX NSFW
-  const defaultLoRAConfig: LoRAConfig = {
-    flux_nsfw: 1.0
-  }
+  // Use global base model state
+  const { baseModel, loraConfig, setLoraConfig } = useBaseModel()
   
   const [params, setParams] = useState<ImageToImageParams>({
     prompt: '',
@@ -56,9 +54,18 @@ export default function ImageToImagePanel() {
     seed: -1,
     numImages: 1,
     denoisingStrength: 0.7,
-    baseModel: 'realistic',
-    lora_config: defaultLoRAConfig,
+    baseModel: baseModel,
+    lora_config: loraConfig,
   })
+
+  // Update params when global base model changes
+  React.useEffect(() => {
+    setParams(prev => ({
+      ...prev,
+      baseModel: baseModel,
+      lora_config: loraConfig
+    }))
+  }, [baseModel, loraConfig])
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
@@ -88,7 +95,7 @@ export default function ImageToImagePanel() {
     setStatus('pending')
     setCurrentError(null)
     setGenerationProgress('Preparing generation...')
-    setCurrentGenerationImages([]) // 清空当前生成的图片
+    setCurrentGenerationImages([])
     
     const abortController = new AbortController()
     abortControllerRef.current = abortController
@@ -120,13 +127,13 @@ export default function ImageToImagePanel() {
         return
       }
       
-      // 将之前的current images移到history
+      // Move previous current images to history
       if (currentGenerationImages.length > 0) {
         setHistoryImages(prev => [...currentGenerationImages, ...prev])
       }
       
       setGeneratedImages(prev => [...result, ...prev])
-      setCurrentGenerationImages(result) // 设置新生成的图片为current
+      setCurrentGenerationImages(result)
       setStatus('success')
       setGenerationProgress(`Successfully generated ${result.length} image(s)`)
       toast.success(`Generated ${result.length} image(s)`)
@@ -404,27 +411,9 @@ export default function ImageToImagePanel() {
 
             {/* LoRA Model Selector */}
             <LoRASelector
-              value={params.lora_config || defaultLoRAConfig}
-              onChange={(loraConfig) => setParams(prev => ({ ...prev, lora_config: loraConfig }))}
-              baseModel={params.baseModel}
-              disabled={status === 'pending'}
-            />
-
-            {/* Base Model Selector */}
-            <BaseModelSelector
-              value={params.baseModel}
-              onChange={(baseModel) => {
-                // 根据基础模型自动配置对应的LoRA
-                const newLoRAConfig: LoRAConfig = baseModel === 'realistic' 
-                  ? { flux_nsfw: 1.0 } 
-                  : { gayporn: 1.0 }
-                
-                setParams(prev => ({ 
-                  ...prev, 
-                  baseModel,
-                  lora_config: newLoRAConfig
-                }))
-              }}
+              value={loraConfig}
+              onChange={setLoraConfig}
+              baseModel={baseModel}
               disabled={status === 'pending'}
             />
 
