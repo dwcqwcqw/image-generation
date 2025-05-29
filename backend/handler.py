@@ -413,42 +413,9 @@ def load_specific_model(base_model_type: str):
         
         print(f"🚀 {model_config['name']} system ready for image generation!")
         
-        # 🎯 优化7: 长提示词支持 - 全新的实现方法
-        global compel_proc
-        compel_proc = None
-        
-        print("🔤 Implementing advanced long prompt support (bypass 77 token limit)...")
-        
-        # 不再依赖Compel，使用FLUX原生的长提示词处理
-        try:
-            # 测试FLUX模型的原生长提示词支持
-            test_long_prompt = "test " * 100  # 400+ tokens
-            with torch.no_grad():
-                # 直接测试tokenizer的最大长度
-                tokens = txt2img_pipe.tokenizer(
-                    test_long_prompt,
-                    truncation=False,
-                    return_tensors="pt"
-                )
-                max_length = tokens.input_ids.shape[1]
-                print(f"✅ FLUX tokenizer supports up to {max_length} tokens naturally!")
-                
-                # 测试tokenizer_2的最大长度
-                if hasattr(txt2img_pipe, 'tokenizer_2') and txt2img_pipe.tokenizer_2:
-                    tokens2 = txt2img_pipe.tokenizer_2(
-                        test_long_prompt,
-                        truncation=False,
-                        return_tensors="pt"
-                    )
-                    max_length2 = tokens2.input_ids.shape[1]
-                    print(f"✅ FLUX tokenizer_2 supports up to {max_length2} tokens!")
-                    
-                print("✅ Long prompt support enabled - no 77 token truncation!")
-                
-        except Exception as e:
-            print(f"⚠️  Long prompt test failed: {e}")
-            print("Will use fallback chunking strategy for long prompts")
-        
+        # compel_proc and advanced long prompt support is handled by pipeline.encode_prompt directly
+        # No need for separate Compel instances here for basic embedding generation
+
     except Exception as e:
         print(f"❌ Error loading {model_config['name']} model: {str(e)}")
         traceback.print_exc()
@@ -532,7 +499,7 @@ def base64_to_image(base64_str: str) -> Image.Image:
 
 def text_to_image(params: dict) -> list:
     """文生图生成 - 优化版本 with long prompt support"""
-    global txt2img_pipe, compel_proc, current_base_model
+    global txt2img_pipe, current_base_model
     
     if txt2img_pipe is None:
         raise ValueError("Text-to-image model not loaded")
@@ -559,23 +526,93 @@ def text_to_image(params: dict) -> list:
         print(f"Updating LoRA config for generation: {lora_config}")
         load_multiple_loras(lora_config)
     
-    # 🎯 长提示词支持 - 全新方法：直接使用FLUX原生处理
-    print(f"📝 Processing prompt: {len(prompt)} characters")
-    
-    # 直接使用原始提示词，让FLUX自然处理
     # FLUX模型原生支持长提示词，不需要复杂的embedding处理
     generation_kwargs = {
-        "prompt": prompt,
-        "negative_prompt": negative_prompt,
         "width": width,
         "height": height,
         "num_inference_steps": steps,
         "guidance_scale": cfg_scale,
         "generator": None,  # 稍后设置
-        # 关键：设置max_sequence_length来支持长提示词
-        "max_sequence_length": 512,  # 支持512 tokens而不是77
     }
-    
+
+    # Generate embeds using the pipeline's own encoder for robustness
+    print("🧬 Generating prompt embeddings using pipeline.encode_prompt()...")
+    try:
+        # Ensure the pipeline is on the correct device before encoding
+        device = get_device()
+        # txt2img_pipe.to(device) # Usually done at load time, but good to be sure if issues arise
+
+        prompt_embeds_out = txt2img_pipe.encode_prompt(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            device=device,
+            num_images_per_prompt=1, # Encode for a single image initially
+            do_classifier_free_guidance=cfg_scale > 1.0, # Common practice
+            # Any other FLUX specific args for encode_prompt can be added here
+        )
+
+        # FluxPipeline.encode_prompt typically returns: 
+        # (prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds)
+        # Newer diffusers might return a dataclass or dict.
+        # Let's assume tuple output for now, and adjust if it's a class/dict by accessing its attributes.
+        # Expected output structure for FluxPipeline:
+        # prompt_embeds: main conditionings from T1+T2
+        # negative_prompt_embeds: negative main conditionings from T1+T2
+        # pooled_prompt_embeds: pooled positive output (usually from T2)
+        # negative_pooled_prompt_embeds: pooled negative output (usually from T2)
+        
+        # Unpack the outputs. The exact names depend on the diffusers version and FluxPipeline implementation.
+        # Common names are prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds
+        # Some pipelines might return a PromptOutput dataclass.
+        # For FLUX, it often returns prompt_embeds, text_embeds_2, pooled_text_embeds (and their negative counterparts)
+        # Let's check typical Flux/SDXL output of encode_prompt.
+        # It is usually: `prompt_embeds`, `negative_prompt_embeds`, `pooled_prompt_embeds`, `negative_pooled_prompt_embeds`
+        # Let's assume these are the keys if it's a dict, or attributes if it's an object.
+        # If it's a tuple, the order matters.
+
+        # Assuming prompt_embeds_out is an object with attributes:
+        if hasattr(prompt_embeds_out, 'prompt_embeds'): # Diffusers >= 0.1 embeds_utils.PromptOutput
+            generation_kwargs["prompt_embeds"] = prompt_embeds_out.prompt_embeds
+            generation_kwargs["negative_prompt_embeds"] = prompt_embeds_out.negative_prompt_embeds
+            generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_out.pooled_prompt_embeds
+            generation_kwargs["negative_pooled_prompt_embeds"] = prompt_embeds_out.negative_pooled_prompt_embeds
+        elif isinstance(prompt_embeds_out, tuple) and len(prompt_embeds_out) == 4: # Older diffusers might return a tuple
+            generation_kwargs["prompt_embeds"] = prompt_embeds_out[0]
+            generation_kwargs["negative_prompt_embeds"] = prompt_embeds_out[1]
+            generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_out[2]
+            generation_kwargs["negative_pooled_prompt_embeds"] = prompt_embeds_out[3]
+        else:
+            # Fallback or if the structure is different (e.g. specific to FLUX internal naming)
+            # FLUX might use: prompt_embeds (combined), text_embeds_2_unpooled, pooled_embeds
+            # For now, this generic unpacking should cover common cases.
+            # If specific FLUX names are needed, they would replace the keys above.
+            # For example, if encode_prompt returns (prompt_embeds, text_embeds_2_norm, pooled_embeds, neg_prompt_embeds, neg_text_embeds_2_norm, neg_pooled_embeds)
+            # The assignment would need to match that structure.
+            # The key is that `encode_prompt` handles the complexity.
+            print("⚠️ Unexpected output structure from encode_prompt. Attempting generic assignment.")
+            # This might need to be more specific based on the exact return of your FluxPipeline.encode_prompt
+            # Defaulting to a common structure for SDXL-like models. FLUX might be similar.
+            # prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds
+            # Let's assume this is the primary set of arguments the pipeline will look for.
+            # If the pipeline call later fails due to missing specific FLUX embedding names, this section will need adjustment.
+            # The most common signature for SDXL/Flux type models when calling the pipe with pre-encoded embeds is:
+            # pipe(prompt_embeds=..., negative_prompt_embeds=..., pooled_prompt_embeds=..., negative_pooled_prompt_embeds=...)
+            # So, the keys above should be correct.
+            # If `encode_prompt` returns a dict: generation_kwargs.update(prompt_embeds_out)
+            if isinstance(prompt_embeds_out, dict):
+                 generation_kwargs.update(prompt_embeds_out)
+            else:
+                raise ValueError("Unsupported output format from pipeline.encode_prompt()")
+
+        print("✅ Embeddings successfully generated and assigned.")
+
+    except Exception as e:
+        print(f"⚠️ pipeline.encode_prompt() failed: {e}. Traceback follows.")
+        traceback.print_exc()
+        print("Falling back to using raw prompts (this will likely cause the original error with FluxPipeline).")
+        generation_kwargs["prompt"] = prompt
+        generation_kwargs["negative_prompt"] = negative_prompt
+
     # 设置随机种子
     if seed == -1:
         seed = torch.randint(0, 2**32 - 1, (1,)).item()
@@ -728,12 +765,65 @@ def image_to_image(params: dict) -> list:
     # 调整图像尺寸
     source_image = source_image.resize((width, height), Image.Resampling.LANCZOS)
     
+    # 🎯 长提示词支持 - 全新方法：直接使用FLUX原生处理 (通过 pipeline.encode_prompt)
+    print(f"📝 Processing prompt for Img2Img: {len(prompt)} characters")
+    
+    generation_kwargs = {
+        "image": source_image,
+        # "prompt": prompt, # Replaced by embeds
+        # "negative_prompt": negative_prompt, # Replaced by embeds
+        "width": width, 
+        "height": height,
+        "strength": denoising_strength, # For Img2Img
+        "num_inference_steps": steps,
+        "guidance_scale": cfg_scale,
+        "generator": None,  # 稍后设置
+    }
+
+    # Generate embeds using the pipeline's own encoder for robustness
+    print("🧬 Generating prompt embeddings for Img2Img using pipeline.encode_prompt()...")
+    try:
+        device = get_device()
+        prompt_embeds_out = img2img_pipe.encode_prompt(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            device=device,
+            num_images_per_prompt=1,
+            do_classifier_free_guidance=cfg_scale > 1.0,
+        )
+
+        if hasattr(prompt_embeds_out, 'prompt_embeds'): # Diffusers >= 0.1 embeds_utils.PromptOutput
+            generation_kwargs["prompt_embeds"] = prompt_embeds_out.prompt_embeds
+            generation_kwargs["negative_prompt_embeds"] = prompt_embeds_out.negative_prompt_embeds
+            generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_out.pooled_prompt_embeds
+            generation_kwargs["negative_pooled_prompt_embeds"] = prompt_embeds_out.negative_pooled_prompt_embeds
+        elif isinstance(prompt_embeds_out, tuple) and len(prompt_embeds_out) == 4:
+            generation_kwargs["prompt_embeds"] = prompt_embeds_out[0]
+            generation_kwargs["negative_prompt_embeds"] = prompt_embeds_out[1]
+            generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_out[2]
+            generation_kwargs["negative_pooled_prompt_embeds"] = prompt_embeds_out[3]
+        else:
+            if isinstance(prompt_embeds_out, dict):
+                 generation_kwargs.update(prompt_embeds_out)
+            else:
+                raise ValueError("Unsupported output format from Img2Img pipeline.encode_prompt()")
+
+        print("✅ Img2Img Embeddings successfully generated and assigned.")
+
+    except Exception as e:
+        print(f"⚠️ Img2Img pipeline.encode_prompt() failed: {e}. Traceback follows.")
+        traceback.print_exc()
+        print("Falling back to using raw prompts for Img2Img (this will likely cause the original error).")
+        generation_kwargs["prompt"] = prompt
+        generation_kwargs["negative_prompt"] = negative_prompt
+
     # 设置随机种子
     if seed == -1:
         seed = torch.randint(0, 2**32 - 1, (1,)).item()
     
     generator = torch.Generator(device=img2img_pipe.device).manual_seed(seed)
-    
+    generation_kwargs["generator"] = generator
+
     results = []
     
     # 优化：批量生成时一次性生成所有图片
