@@ -33,17 +33,9 @@ export default function TextToImagePanel() {
   const [generationProgress, setGenerationProgress] = useState<string>('')
   const abortControllerRef = useRef<AbortController | null>(null)
   
-  // 默认LoRA配置
+  // 默认LoRA配置 - 简化为只使用FLUX NSFW
   const defaultLoRAConfig: LoRAConfig = {
-    flux_nsfw: 1.0,
-    UltraRealPhoto: 1.0,
-    Chastity_Cage: 0.5,
-    DynamicPenis: 0.5,
-    OnOff: 0.5,
-    Puppy_mask: 0.5,
-    asianman: 0.5,
-    'butt-and-feet': 0.5,
-    cumshots: 0.5
+    flux_nsfw: 1.0
   }
   
   const [params, setParams] = useState<TextToImageParams>({
