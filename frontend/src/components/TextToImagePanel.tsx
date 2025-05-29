@@ -26,6 +26,8 @@ export default function TextToImagePanel() {
   const [status, setStatus] = useState<GenerationStatus>('idle')
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false)
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([])
+  const [currentGenerationImages, setCurrentGenerationImages] = useState<GeneratedImage[]>([])
+  const [historyImages, setHistoryImages] = useState<GeneratedImage[]>([])
   const [currentError, setCurrentError] = useState<string | null>(null)
   const [generationProgress, setGenerationProgress] = useState<string>('')
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -43,22 +45,13 @@ export default function TextToImagePanel() {
   })
 
   const handleGenerate = async () => {
-    if (!params.prompt.trim()) {
-      toast.error('Please enter a prompt')
-      return
-    }
-
-    // Cancel any existing generation
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-    }
-
-    // Create new abort controller
-    abortControllerRef.current = new AbortController()
-    
     setStatus('pending')
     setCurrentError(null)
-    setGenerationProgress('Initializing generation...')
+    setGenerationProgress('Preparing generation...')
+    setCurrentGenerationImages([]) // 清空当前生成的图片
+    
+    // Create new AbortController for this generation
+    abortControllerRef.current = new AbortController()
     
     try {
       const result = await generateTextToImage(params, abortControllerRef.current.signal)
@@ -69,7 +62,13 @@ export default function TextToImagePanel() {
         return
       }
       
+      // 将之前的current images移到history
+      if (currentGenerationImages.length > 0) {
+        setHistoryImages(prev => [...currentGenerationImages, ...prev])
+      }
+      
       setGeneratedImages(prev => [...result, ...prev])
+      setCurrentGenerationImages(result) // 设置新生成的图片为current
       setStatus('success')
       setGenerationProgress(`Successfully generated ${result.length} image(s)`)
       toast.success(`Generated ${result.length} image(s)`)
@@ -110,7 +109,8 @@ export default function TextToImagePanel() {
   }
 
   const downloadAllImages = () => {
-    generatedImages.forEach((image, index) => {
+    const displayImages = [...currentGenerationImages, ...historyImages]
+    displayImages.forEach((image, index) => {
       const link = document.createElement('a')
       link.href = image.url
       link.download = `generated_image_${index + 1}.png`
@@ -118,7 +118,7 @@ export default function TextToImagePanel() {
       link.click()
       document.body.removeChild(link)
     })
-    toast.success(`Downloaded ${generatedImages.length} images`)
+    toast.success(`Downloaded ${displayImages.length} images`)
   }
 
   const presetSizes = [
@@ -389,40 +389,22 @@ export default function TextToImagePanel() {
                   <span>Try Again</span>
                 </button>
               )}
-
-              {generatedImages.length > 0 && (
-                <button
-                  onClick={downloadAllImages}
-                  className="btn-secondary w-full flex items-center justify-center space-x-2"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download All ({generatedImages.length})</span>
-                </button>
-              )}
             </div>
           </div>
         </div>
 
         {/* Results Panel */}
         <div className="lg:col-span-2">
-          <div className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">
-                Generated Images ({generatedImages.length})
-              </h3>
-              {generatedImages.length > 0 && (
-                <button
-                  onClick={() => setGeneratedImages([])}
-                  className="text-sm text-gray-500 hover:text-gray-700"
-                >
-                  Clear All
-                </button>
-              )}
-            </div>
-            
-            {generatedImages.length > 0 ? (
-              <ImageGallery images={generatedImages} />
-            ) : (
+          {(currentGenerationImages.length > 0 || historyImages.length > 0) ? (
+            <ImageGallery 
+              currentImages={currentGenerationImages}
+              historyImages={historyImages}
+              isLoading={status === 'pending'}
+              onDownloadAll={downloadAllImages}
+            />
+          ) : (
+            <div className="card">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Generated Images</h3>
               <div className="text-center py-12 text-gray-500">
                 <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
                   <Play className="w-8 h-8 text-gray-400" />
@@ -430,8 +412,8 @@ export default function TextToImagePanel() {
                 <p>No images generated yet</p>
                 <p className="text-sm">Enter a prompt and click "Generate Images" to start</p>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -46,6 +46,7 @@ CLOUDFLARE_R2_ACCESS_KEY = os.getenv("CLOUDFLARE_R2_ACCESS_KEY")
 CLOUDFLARE_R2_SECRET_KEY = os.getenv("CLOUDFLARE_R2_SECRET_KEY") 
 CLOUDFLARE_R2_BUCKET = os.getenv("CLOUDFLARE_R2_BUCKET")
 CLOUDFLARE_R2_ENDPOINT = os.getenv("CLOUDFLARE_R2_ENDPOINT")
+CLOUDFLARE_R2_PUBLIC_DOMAIN = os.getenv("CLOUDFLARE_R2_PUBLIC_DOMAIN")  # 可选：自定义公共域名
 
 # 模型路径
 FLUX_BASE_PATH = "/runpod-volume/flux_base"
@@ -314,9 +315,19 @@ def upload_to_r2(image_data: bytes, filename: str) -> str:
             ACL='public-read'
         )
         
-        # 构建公共 URL
-        public_url = f"{CLOUDFLARE_R2_ENDPOINT}/{CLOUDFLARE_R2_BUCKET}/{filename}"
-        print(f"✓ Successfully uploaded to: {public_url}")
+        # 构建正确的公共 URL 格式 - Cloudflare R2 public URL format
+        # 优先使用自定义公共域名（推荐，可避免CORS问题）
+        if CLOUDFLARE_R2_PUBLIC_DOMAIN:
+            public_url = f"{CLOUDFLARE_R2_PUBLIC_DOMAIN.rstrip('/')}/{filename}"
+            print(f"✓ Successfully uploaded to (custom domain): {public_url}")
+        else:
+            # 回退到标准R2格式
+            # 正确格式: https://{bucket}.{account_id}.r2.cloudflarestorage.com/{filename}
+            # 从endpoint URL中提取account ID
+            account_id = CLOUDFLARE_R2_ENDPOINT.split('//')[1].split('.')[0]
+            public_url = f"https://{CLOUDFLARE_R2_BUCKET}.{account_id}.r2.cloudflarestorage.com/{filename}"
+            print(f"✓ Successfully uploaded to (standard R2): {public_url}")
+        
         return public_url
         
     except Exception as e:

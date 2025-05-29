@@ -2,19 +2,31 @@
 
 import { useState } from 'react'
 import Image from 'next/image'
-import { Download, Eye, Copy, Trash2, RefreshCw } from 'lucide-react'
+import { Download, Eye, Copy, Trash2, RefreshCw, Archive, Clock } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import type { GeneratedImage } from '@/types'
 import { downloadImage } from '@/services/api'
 
 interface ImageGalleryProps {
-  images: GeneratedImage[]
+  currentImages?: GeneratedImage[]    // 当前任务生成的图片
+  historyImages?: GeneratedImage[]    // 历史生成的图片
   isLoading?: boolean
   title?: string
+  onDownloadAll?: () => void         // download all 回调函数
 }
 
-export default function ImageGallery({ images, isLoading, title = "Images" }: ImageGalleryProps) {
+export default function ImageGallery({ 
+  currentImages = [], 
+  historyImages = [], 
+  isLoading, 
+  title = "Generated Images",
+  onDownloadAll 
+}: ImageGalleryProps) {
   const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(null)
+  const [showTab, setShowTab] = useState<'current' | 'all'>('current')
+
+  const allImages = [...currentImages, ...historyImages]
+  const displayImages = showTab === 'current' ? currentImages : allImages
 
   const handleDownload = async (image: GeneratedImage) => {
     try {
@@ -23,6 +35,23 @@ export default function ImageGallery({ images, isLoading, title = "Images" }: Im
       toast.success('Image downloaded successfully')
     } catch (error) {
       toast.error('Failed to download image')
+    }
+  }
+
+  const handleDownloadAll = () => {
+    if (onDownloadAll) {
+      onDownloadAll()
+    } else {
+      // 默认下载逻辑
+      displayImages.forEach((image, index) => {
+        const link = document.createElement('a')
+        link.href = image.url
+        link.download = `ai-generated-${index + 1}.png`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+      })
+      toast.success(`Downloaded ${displayImages.length} images`)
     }
   }
 
@@ -35,7 +64,11 @@ export default function ImageGallery({ images, isLoading, title = "Images" }: Im
     return new Date(timestamp).toLocaleString()
   }
 
-  if (isLoading && images.length === 0) {
+  const isCurrentImage = (imageId: string) => {
+    return currentImages.some(img => img.id === imageId)
+  }
+
+  if (isLoading && allImages.length === 0) {
     return (
       <div className="card">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">{title}</h3>
@@ -48,7 +81,7 @@ export default function ImageGallery({ images, isLoading, title = "Images" }: Im
     )
   }
 
-  if (images.length === 0) {
+  if (allImages.length === 0) {
     return (
       <div className="card">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">{title}</h3>
@@ -65,11 +98,57 @@ export default function ImageGallery({ images, isLoading, title = "Images" }: Im
 
   return (
     <div className="card">
+      {/* Header with title, tabs, and download all button */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
-        <span className="text-sm text-gray-500">{images.length} image(s)</span>
+        <div className="flex items-center space-x-4">
+          <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+          
+          {/* Tab switcher */}
+          {historyImages.length > 0 && (
+            <div className="flex bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setShowTab('current')}
+                className={`px-3 py-1 text-sm rounded-md transition-colors flex items-center space-x-1 ${
+                  showTab === 'current'
+                    ? 'bg-white text-primary-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Clock className="w-3 h-3" />
+                <span>Current ({currentImages.length})</span>
+              </button>
+              <button
+                onClick={() => setShowTab('all')}
+                className={`px-3 py-1 text-sm rounded-md transition-colors flex items-center space-x-1 ${
+                  showTab === 'all'
+                    ? 'bg-white text-primary-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Archive className="w-3 h-3" />
+                <span>All ({allImages.length})</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Download all button and image count */}
+        <div className="flex items-center space-x-3">
+          <span className="text-sm text-gray-500">{displayImages.length} image(s)</span>
+          
+          {displayImages.length > 0 && (
+            <button
+              onClick={handleDownloadAll}
+              className="btn-secondary flex items-center space-x-2 px-3 py-2 text-sm"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download All</span>
+            </button>
+          )}
+        </div>
       </div>
 
+      {/* Images grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {isLoading && (
           <div className="aspect-square bg-gray-100 rounded-lg flex items-center justify-center">
@@ -77,8 +156,23 @@ export default function ImageGallery({ images, isLoading, title = "Images" }: Im
           </div>
         )}
         
-        {images.map((image) => (
+        {displayImages.map((image) => (
           <div key={image.id} className="group relative aspect-square bg-gray-100 rounded-lg overflow-hidden">
+            {/* Image type badge */}
+            <div className="absolute top-2 left-2 z-10">
+              {isCurrentImage(image.id) ? (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
+                  <Clock className="w-3 h-3 mr-1" />
+                  Current
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                  <Archive className="w-3 h-3 mr-1" />
+                  History
+                </span>
+              )}
+            </div>
+
             <Image
               src={image.url}
               alt={image.prompt}
@@ -127,10 +221,23 @@ export default function ImageGallery({ images, isLoading, title = "Images" }: Im
           <div className="bg-white rounded-xl max-w-4xl max-h-[90vh] overflow-auto">
             <div className="p-6">
               <div className="flex justify-between items-start mb-4">
-                <h4 className="text-xl font-semibold text-gray-900">Image Details</h4>
+                <div className="flex items-center space-x-3">
+                  <h4 className="text-xl font-semibold text-gray-900">Image Details</h4>
+                  {isCurrentImage(selectedImage.id) ? (
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                      <Clock className="w-3 h-3 mr-1" />
+                      Current
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                      <Archive className="w-3 h-3 mr-1" />
+                      History
+                    </span>
+                  )}
+                </div>
                 <button
                   onClick={() => setSelectedImage(null)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
                 >
                   ×
                 </button>

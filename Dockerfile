@@ -40,6 +40,7 @@ ENV CLOUDFLARE_R2_ACCESS_KEY=5885b29961ce9fc2b593139d9de52f81
 ENV CLOUDFLARE_R2_SECRET_KEY=a4415c670e669229db451ea7b38544c0a2e44dbe630f1f35f99f28a27593d181
 ENV CLOUDFLARE_R2_BUCKET=image-generation
 ENV CLOUDFLARE_R2_ENDPOINT=https://c7c141ce43d175e60601edc46d904553.r2.cloudflarestorage.com
+# ENV CLOUDFLARE_R2_PUBLIC_DOMAIN=https://images.yourdomain.com  # Optional: Custom public domain
 
 # Expose port (if needed for local testing)
 EXPOSE 8000
