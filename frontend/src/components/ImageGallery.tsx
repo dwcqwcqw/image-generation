@@ -15,6 +15,15 @@ interface ImageGalleryProps {
   onDownloadAll?: () => void         // download all 回调函数
 }
 
+// 将R2 URL转换为代理URL以绕过CORS问题
+const getProxyImageUrl = (originalUrl: string): string => {
+  // 检查是否是R2 URL
+  if (originalUrl.includes('r2.cloudflarestorage.com')) {
+    return `/api/proxy-image?url=${encodeURIComponent(originalUrl)}`
+  }
+  return originalUrl
+}
+
 export default function ImageGallery({ 
   currentImages = [], 
   historyImages = [], 
@@ -174,7 +183,7 @@ export default function ImageGallery({
             </div>
 
             <Image
-              src={image.url}
+              src={getProxyImageUrl(image.url)}
               alt={image.prompt}
               fill
               className="object-cover transition-transform duration-300 group-hover:scale-105"
@@ -246,7 +255,7 @@ export default function ImageGallery({
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden">
                   <Image
-                    src={selectedImage.url}
+                    src={getProxyImageUrl(selectedImage.url)}
                     alt={selectedImage.prompt}
                     fill
                     className="object-cover"

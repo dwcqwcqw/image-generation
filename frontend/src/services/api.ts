@@ -317,17 +317,31 @@ export async function uploadImage(file: File): Promise<string> {
 // Download image
 export async function downloadImage(url: string, filename: string): Promise<void> {
   try {
-    const response = await fetch(url)
+    // 使用代理URL来绕过CORS问题
+    const downloadUrl = url.includes('r2.cloudflarestorage.com') 
+      ? `/api/proxy-image?url=${encodeURIComponent(url)}`
+      : url
+    
+    console.log('[Download] Using URL:', downloadUrl)
+    
+    const response = await fetch(downloadUrl)
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    }
+    
     const blob = await response.blob()
     
-    const downloadUrl = window.URL.createObjectURL(blob)
+    console.log('[Download] Blob size:', blob.size, 'bytes')
+    
+    const objectUrl = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
-    link.href = downloadUrl
+    link.href = objectUrl
     link.download = filename
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-    window.URL.revokeObjectURL(downloadUrl)
+    window.URL.revokeObjectURL(objectUrl)
   } catch (error) {
     console.error('Image download failed:', error)
     throw error
