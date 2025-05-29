@@ -317,14 +317,10 @@ export async function uploadImage(file: File): Promise<string> {
 // Download image
 export async function downloadImage(url: string, filename: string): Promise<void> {
   try {
-    // 使用代理URL来绕过CORS问题
-    const downloadUrl = url.includes('r2.cloudflarestorage.com') 
-      ? `/api/proxy-image?url=${encodeURIComponent(url)}`
-      : url
+    console.log('[Download] Attempting direct download:', url)
     
-    console.log('[Download] Using URL:', downloadUrl)
-    
-    const response = await fetch(downloadUrl)
+    // 首先尝试直接下载，依赖CORS配置
+    const response = await fetch(url)
     
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -343,8 +339,33 @@ export async function downloadImage(url: string, filename: string): Promise<void
     document.body.removeChild(link)
     window.URL.revokeObjectURL(objectUrl)
   } catch (error) {
-    console.error('Image download failed:', error)
-    throw error
+    console.error('Direct download failed:', error)
+    
+    // 如果直接下载失败，尝试使用代理（仅在开发环境或支持API路由的平台）
+    try {
+      console.log('[Download] Trying proxy download...')
+      const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(url)}`
+      const proxyResponse = await fetch(proxyUrl)
+      
+      if (!proxyResponse.ok) {
+        throw new Error(`Proxy failed: HTTP ${proxyResponse.status}`)
+      }
+      
+      const blob = await proxyResponse.blob()
+      const objectUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(objectUrl)
+    } catch (proxyError) {
+      console.error('Proxy download also failed:', proxyError)
+      // 最后回退：在新窗口打开图片让用户手动保存
+      window.open(url, '_blank')
+      throw new Error('Automatic download failed. Image opened in new tab for manual saving.')
+    }
   }
 }
 

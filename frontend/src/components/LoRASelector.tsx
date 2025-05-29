@@ -12,20 +12,15 @@ interface LoRASelectorProps {
 
 // Static LoRA options based on user's available models
 const STATIC_LORAS: Record<string, LoRAModel> = {
-  'flux-uncensored-v2': {
-    name: 'FLUX Uncensored V2',
-    description: 'Enhanced uncensored content generation model',
-    is_current: false
-  },
   'flux-nsfw': {
     name: 'FLUX NSFW',
-    description: 'NSFW content generation model',
+    description: 'NSFW content generation model with enhanced capabilities',
     is_current: false
   }
 }
 
 export default function LoRASelector({ value, onChange, disabled }: LoRASelectorProps) {
-  const [selectedLora, setSelectedLora] = useState(value || 'flux-uncensored-v2')
+  const [selectedLora, setSelectedLora] = useState(value || 'flux-nsfw')
 
   const handleLoraChange = (loraId: string) => {
     if (loraId === selectedLora || disabled) return

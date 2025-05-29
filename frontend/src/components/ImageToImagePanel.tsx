@@ -45,11 +45,11 @@ export default function ImageToImagePanel() {
     width: 512,
     height: 512,
     steps: 20,
-    cfgScale: 7,
+    cfgScale: 7.0,
     seed: -1,
     numImages: 1,
     denoisingStrength: 0.7,
-    lora_model: 'flux-uncensored-v2',
+    lora_model: 'flux-nsfw',
   })
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -397,7 +397,7 @@ export default function ImageToImagePanel() {
 
             {/* LoRA Model Selector */}
             <LoRASelector
-              value={params.lora_model || 'flux-uncensored-v2'}
+              value={params.lora_model || 'flux-nsfw'}
               onChange={(loraId) => setParams(prev => ({ ...prev, lora_model: loraId }))}
               disabled={status === 'pending'}
             />

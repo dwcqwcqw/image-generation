@@ -17,10 +17,8 @@ interface ImageGalleryProps {
 
 // 将R2 URL转换为代理URL以绕过CORS问题
 const getProxyImageUrl = (originalUrl: string): string => {
-  // 检查是否是R2 URL
-  if (originalUrl.includes('r2.cloudflarestorage.com')) {
-    return `/api/proxy-image?url=${encodeURIComponent(originalUrl)}`
-  }
+  // 对于Cloudflare Pages，直接使用原始URL，依赖CORS配置
+  // 如果需要代理，可以使用Cloudflare Workers
   return originalUrl
 }
 
