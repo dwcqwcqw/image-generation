@@ -13,6 +13,19 @@ from botocore.config import Config
 import sys
 import traceback
 
+# 兼容性修复：为旧版本PyTorch添加get_default_device函数
+if not hasattr(torch, 'get_default_device'):
+    def get_default_device():
+        """Fallback implementation for torch.get_default_device()"""
+        if torch.cuda.is_available():
+            return torch.device('cuda')
+        else:
+            return torch.device('cpu')
+    
+    # 将函数添加到torch模块中
+    torch.get_default_device = get_default_device
+    print("✓ Added fallback torch.get_default_device() function")
+
 # 添加启动日志
 print("=== Starting AI Image Generation Backend ===")
 print(f"Python version: {sys.version}")
@@ -106,6 +119,20 @@ def load_models():
     
     print("🚀 Loading FLUX models with optimizations...")
     start_time = datetime.now()
+    
+    # CUDA兼容性检查和修复
+    if torch.cuda.is_available():
+        try:
+            # 测试CUDA是否可用
+            test_tensor = torch.tensor([1.0]).cuda()
+            print("✓ CUDA test successful")
+            del test_tensor
+            torch.cuda.empty_cache()
+        except Exception as e:
+            print(f"⚠️  CUDA error detected: {e}")
+            print("⚠️  Falling back to CPU mode")
+            # 强制使用CPU
+            os.environ["CUDA_VISIBLE_DEVICES"] = ""
     
     # 检查 CUDA 可用性
     device = get_device()

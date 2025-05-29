@@ -9,11 +9,11 @@ psutil>=5.9.0
 typing-extensions>=4.8.0
 packaging>=23.0
 
-# PyTorch with CUDA 11.8 support - 先安装PyTorch
---index-url https://download.pytorch.org/whl/cu118
-torch==2.2.0+cu118
-torchvision==0.17.0+cu118  
-torchaudio==2.2.0+cu118
+# PyTorch with CUDA 12.1 support for RTX 5090 compatibility
+--index-url https://download.pytorch.org/whl/cu121
+torch==2.5.1+cu121
+torchvision==0.20.1+cu121  
+torchaudio==2.5.1+cu121
 
 # Core ML libraries from PyPI (extra index)
 --extra-index-url https://pypi.org/simple/
