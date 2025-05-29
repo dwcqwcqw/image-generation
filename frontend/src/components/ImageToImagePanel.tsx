@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import ImageGallery from './ImageGallery'
 import LoRASelector from './LoRASelector'
-import { useBaseModel } from '@/app/page'
+import { useBaseModel } from '@/contexts/BaseModelContext'
 import { generateImageToImage } from '@/services/api'
 import { downloadAllImages as downloadAllImagesUtil } from '@/utils/imageProxy'
 import type { ImageToImageParams, GeneratedImage } from '@/types'
