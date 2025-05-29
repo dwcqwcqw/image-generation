@@ -18,6 +18,7 @@ import {
 import ImageGallery from './ImageGallery'
 import LoRASelector from './LoRASelector'
 import { generateTextToImage } from '@/services/api'
+import { downloadAllImages as downloadAllImagesUtil } from '@/utils/imageProxy'
 import type { TextToImageParams, GeneratedImage, LoRAConfig } from '@/types'
 
 type GenerationStatus = 'idle' | 'pending' | 'success' | 'error' | 'cancelled'
@@ -121,17 +122,16 @@ export default function TextToImagePanel() {
     setParams(prev => ({ ...prev, seed: Math.floor(Math.random() * 1000000) }))
   }
 
-  const downloadAllImages = () => {
-    const displayImages = [...currentGenerationImages, ...historyImages]
-    displayImages.forEach((image, index) => {
-      const link = document.createElement('a')
-      link.href = image.url
-      link.download = `generated_image_${index + 1}.png`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-    })
-    toast.success(`Downloaded ${displayImages.length} images`)
+  const downloadAllImages = async () => {
+    try {
+      const displayImages = [...currentGenerationImages, ...historyImages]
+      const imagesToDownload = displayImages.map(img => ({ url: img.url, id: img.id }))
+      await downloadAllImagesUtil(imagesToDownload)
+      toast.success(`Downloaded ${displayImages.length} images`)
+    } catch (error) {
+      console.error('Download failed:', error)
+      toast.error('Some downloads may have failed')
+    }
   }
 
   const presetSizes = [

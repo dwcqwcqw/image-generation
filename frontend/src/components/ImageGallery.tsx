@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { Download, Eye, Copy, Trash2, RefreshCw, Archive, Clock } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import type { GeneratedImage } from '@/types'
-import { downloadImage } from '@/services/api'
+import { getProxiedImageUrl, downloadImage, downloadAllImages } from '@/utils/imageProxy'
 
 interface ImageGalleryProps {
   currentImages?: GeneratedImage[]    // 当前任务生成的图片
@@ -13,13 +13,6 @@ interface ImageGalleryProps {
   isLoading?: boolean
   title?: string
   onDownloadAll?: () => void         // download all 回调函数
-}
-
-// 将R2 URL转换为代理URL以绕过CORS问题
-const getProxyImageUrl = (originalUrl: string): string => {
-  // 对于Cloudflare Pages，直接使用原始URL，依赖CORS配置
-  // 如果需要代理，可以使用Cloudflare Workers
-  return originalUrl
 }
 
 export default function ImageGallery({ 
@@ -41,24 +34,23 @@ export default function ImageGallery({
       await downloadImage(image.url, filename)
       toast.success('Image downloaded successfully')
     } catch (error) {
-      toast.error('Failed to download image')
+      console.error('Download failed:', error)
+      toast.error('Download failed, but opened in new window')
     }
   }
 
-  const handleDownloadAll = () => {
+  const handleDownloadAll = async () => {
     if (onDownloadAll) {
       onDownloadAll()
     } else {
-      // 默认下载逻辑
-      displayImages.forEach((image, index) => {
-        const link = document.createElement('a')
-        link.href = image.url
-        link.download = `ai-generated-${index + 1}.png`
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-      })
-      toast.success(`Downloaded ${displayImages.length} images`)
+      try {
+        const imagesToDownload = displayImages.map(img => ({ url: img.url, id: img.id }))
+        await downloadAllImages(imagesToDownload)
+        toast.success(`Downloaded ${displayImages.length} images`)
+      } catch (error) {
+        console.error('Batch download failed:', error)
+        toast.error('Some downloads may have failed')
+      }
     }
   }
 
@@ -181,7 +173,7 @@ export default function ImageGallery({
             </div>
 
             <Image
-              src={getProxyImageUrl(image.url)}
+              src={getProxiedImageUrl(image.url)}
               alt={image.prompt}
               fill
               className="object-cover transition-transform duration-300 group-hover:scale-105"
@@ -253,7 +245,7 @@ export default function ImageGallery({
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden">
                   <Image
-                    src={getProxyImageUrl(selectedImage.url)}
+                    src={getProxiedImageUrl(selectedImage.url)}
                     alt={selectedImage.prompt}
                     fill
                     className="object-cover"

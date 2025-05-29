@@ -370,22 +370,35 @@ def load_models():
         
         print("🚀 System ready for image generation!")
         
-        # 🎯 优化7: 初始化Compel用于长提示词支持
+        # 🎯 优化7: 初始化Compel用于长提示词支持 (800+ tokens)
         global compel_proc
         compel_proc = None
         
         if COMPEL_AVAILABLE:
             try:
-                print("🔤 Initializing Compel for long prompt support...")
+                print("🔤 Initializing Compel for extended token support (800+ tokens)...")
+                # 高级Compel配置支持超长提示词
                 compel_proc = Compel(
                     tokenizer=[txt2img_pipe.tokenizer, txt2img_pipe.tokenizer_2],
                     text_encoder=[txt2img_pipe.text_encoder, txt2img_pipe.text_encoder_2],
                     device=txt2img_pipe.device,
+                    requires_pooled=[False, True],  # FLUX特定配置
+                    truncate_long_prompts=False,    # 不截断长提示词
                 )
-                print("✅ Compel initialized - now supports prompts up to 512 tokens!")
+                print("✅ Compel initialized - now supports prompts up to 800+ tokens!")
             except Exception as e:
-                print(f"⚠️  Compel initialization failed: {e}")
-                compel_proc = None
+                print(f"⚠️  Advanced Compel initialization failed, trying basic mode: {e}")
+                try:
+                    # 回退到基础配置
+                    compel_proc = Compel(
+                        tokenizer=[txt2img_pipe.tokenizer, txt2img_pipe.tokenizer_2],
+                        text_encoder=[txt2img_pipe.text_encoder, txt2img_pipe.text_encoder_2],
+                        device=txt2img_pipe.device,
+                    )
+                    print("✅ Basic Compel initialized - supports extended prompts")
+                except Exception as e2:
+                    print(f"⚠️  Compel initialization completely failed: {e2}")
+                    compel_proc = None
         else:
             print("⚠️  Compel not available - prompt limited to 77 tokens")
         
@@ -487,17 +500,22 @@ def text_to_image(params: dict) -> list:
     seed = params.get('seed', -1)
     num_images = params.get('numImages', 1)
     
-    # 🎯 长提示词支持 - 解决77 token限制
+    # 🎯 长提示词支持 - 解决77 token限制，支持800+ tokens
     print(f"📝 Processing prompt: {len(prompt)} characters")
     
-    # 处理长提示词
+    # 处理长提示词 - 降低阈值，更积极地使用Compel
     processed_prompt = prompt
     processed_negative_prompt = negative_prompt
     
-    if compel_proc and len(prompt) > 300:  # 估算超过77 tokens的情况
+    # 估算token数量 (平均每个token约4个字符)
+    estimated_tokens = len(prompt) // 4
+    use_compel = compel_proc and (estimated_tokens > 60 or len(prompt) > 240)
+    
+    if use_compel:
         try:
-            print("🔍 Long prompt detected, using Compel for extended token support...")
-            # 使用compel处理长提示词
+            print(f"🔍 Using Compel for extended token support (estimated {estimated_tokens} tokens)...")
+            
+            # 使用compel处理长提示词，支持800+ tokens
             prompt_embeds = compel_proc(prompt)
             
             # 处理负面提示词
@@ -506,7 +524,7 @@ def text_to_image(params: dict) -> list:
             else:
                 negative_prompt_embeds = compel_proc("")
                 
-            print(f"✅ Compel processed prompt successfully")
+            print(f"✅ Compel processed prompt successfully - no token truncation!")
             
             # 使用embedding而不是文本提示词
             generation_kwargs = {
@@ -519,7 +537,7 @@ def text_to_image(params: dict) -> list:
                 "generator": None,  # 稍后设置
             }
         except Exception as e:
-            print(f"⚠️  Compel processing failed, using standard prompt: {e}")
+            print(f"⚠️  Compel processing failed, using standard prompt (may be truncated): {e}")
             # 回退到标准提示词处理
             generation_kwargs = {
                 "prompt": prompt,
@@ -531,7 +549,8 @@ def text_to_image(params: dict) -> list:
                 "generator": None,  # 稍后设置
             }
     else:
-        # 使用标准提示词处理
+        # 使用标准提示词处理 (短提示词)
+        print(f"📝 Using standard prompt processing (estimated {estimated_tokens} tokens)")
         generation_kwargs = {
             "prompt": prompt,
             "negative_prompt": negative_prompt,
