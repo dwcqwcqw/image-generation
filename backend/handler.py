@@ -127,6 +127,7 @@ def load_models():
         }
         
         # 尝试使用设备映射优化 - 修复兼容性问题
+        device_mapping_used = False  # 标志跟踪是否使用设备映射
         if device == "cuda":
             try:
                 # 先尝试 "balanced" 策略
@@ -138,6 +139,7 @@ def load_models():
                     **model_kwargs_with_device_map
                 )
                 print("✅ Device mapping enabled with 'balanced' strategy")
+                device_mapping_used = True
                 
             except Exception as device_map_error:
                 print(f"⚠️  Device mapping failed ({device_map_error}), loading without device mapping")
@@ -146,12 +148,14 @@ def load_models():
                     FLUX_BASE_PATH,
                     **model_kwargs
                 )
+                device_mapping_used = False
         else:
             # CPU模式直接加载
             txt2img_pipe = FluxPipeline.from_pretrained(
                 FLUX_BASE_PATH,
                 **model_kwargs
             )
+            device_mapping_used = False
         
         loading_time = (datetime.now() - start_time).total_seconds()
         print(f"⏱️  Base model loaded in {loading_time:.2f}s")
@@ -215,18 +219,21 @@ def load_models():
         
         print(f"📊 Total available LoRA models: {len(available_loras)}")
         
-        # 🎯 优化4: 智能设备移动
-        device_start_time = datetime.now()
-        print("🚚 Moving pipeline to device...")
-        
-        if device == "cuda":
-            # 渐进式移动到GPU，避免内存峰值
-            txt2img_pipe = txt2img_pipe.to(device)
+        # 🎯 优化4: 智能设备移动（仅在未使用设备映射时）
+        if not device_mapping_used:
+            device_start_time = datetime.now()
+            print("🚚 Moving pipeline to device...")
+            
+            if device == "cuda":
+                # 渐进式移动到GPU，避免内存峰值
+                txt2img_pipe = txt2img_pipe.to(device)
+            else:
+                txt2img_pipe = txt2img_pipe.to(device)
+            
+            device_time = (datetime.now() - device_start_time).total_seconds()
+            print(f"✅ Device transfer completed in {device_time:.2f}s")
         else:
-            txt2img_pipe = txt2img_pipe.to(device)
-        
-        device_time = (datetime.now() - device_start_time).total_seconds()
-        print(f"✅ Device transfer completed in {device_time:.2f}s")
+            print("⚡ Skipping manual device transfer (using device mapping)")
         
         # 🎯 优化5: 图生图模型使用共享组件 (零拷贝)
         print("🔗 Creating image-to-image pipeline (sharing components)...")
