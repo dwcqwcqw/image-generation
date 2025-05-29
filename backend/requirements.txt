@@ -9,26 +9,28 @@ psutil>=5.9.0
 typing-extensions>=4.8.0
 packaging>=23.0
 
-# PyTorch with CUDA 12.1 support for RTX 5090 compatibility
---index-url https://download.pytorch.org/whl/cu121
-torch==2.5.1+cu121
-torchvision==0.20.1+cu121  
-torchaudio==2.5.1+cu121
+# Use PyTorch that's compatible with the base image (2.1.0)
+# Note: Base image already has PyTorch 2.1.0+cu118, so we skip torch installation
+# to avoid conflicts
 
-# Core ML libraries from PyPI (extra index)
---extra-index-url https://pypi.org/simple/
-diffusers>=0.30.0
-transformers>=4.40.0,<5.0.0
-accelerate>=0.24.0,<0.35.0
+# Core ML libraries from PyPI
+diffusers>=0.30.0,<0.32.0
+transformers>=4.40.0,<4.46.0
+accelerate>=0.24.0,<0.34.0
 safetensors>=0.4.0,<0.5.0
-peft>=0.8.0,<0.12.0
+peft>=0.8.0,<0.11.0
 protobuf>=3.20.0,<4.0.0
 sentencepiece>=0.1.99,<0.2.0
-compel>=2.0.2
+compel>=2.0.2,<3.0.0
 
 # Additional dependencies for FLUX model
-controlnet-aux>=0.0.6
+controlnet-aux>=0.0.6,<0.1.0
 opencv-python-headless>=4.8.0,<5.0.0
 
-# Remove xformers for now due to CUDA version mismatch
-# xformers>=0.0.22 
+# Pin specific versions to avoid conflicts
+huggingface-hub>=0.20.0,<0.26.0
+tokenizers>=0.15.0,<0.20.0
+regex>=2023.10.0
+
+# Remove PyTorch installation lines since base image provides them
+# This prevents version conflicts that could cause container creation failures 

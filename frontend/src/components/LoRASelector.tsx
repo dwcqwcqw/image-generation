@@ -1,25 +1,18 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Wand2, RotateCcw, Eye, EyeOff } from 'lucide-react'
-import type { LoRAConfig } from '@/types'
+import { Wand2 } from 'lucide-react'
+import type { LoRAConfig, BaseModelType } from '@/types'
+import { BASE_MODELS } from './BaseModelSelector'
 
 interface LoRASelectorProps {
   value: LoRAConfig
   onChange: (config: LoRAConfig) => void
+  baseModel: BaseModelType
   disabled?: boolean
 }
 
-// Static LoRA models - 简化为只显示FLUX NSFW
-const AVAILABLE_LORAS = {
-  flux_nsfw: {
-    name: 'FLUX NSFW',
-    description: 'NSFW content generation model',
-    defaultWeight: 1.0
-  }
-}
-
-export default function LoRASelector({ value, onChange, disabled }: LoRASelectorProps) {
+export default function LoRASelector({ value, onChange, baseModel, disabled }: LoRASelectorProps) {
   const [localConfig, setLocalConfig] = useState<LoRAConfig>(value)
 
   // 同步外部值变化
@@ -27,34 +20,49 @@ export default function LoRASelector({ value, onChange, disabled }: LoRASelector
     setLocalConfig(value)
   }, [value])
 
+  // 根据基础模型获取对应的LoRA信息
+  const getLoRAInfo = () => {
+    const modelConfig = BASE_MODELS[baseModel]
+    return {
+      id: baseModel === 'realistic' ? 'flux_nsfw' : 'gayporn',
+      name: modelConfig.loraName,
+      description: baseModel === 'realistic' 
+        ? 'NSFW真人内容生成模型' 
+        : 'NSFW动漫内容生成模型'
+    }
+  }
+
+  const loraInfo = getLoRAInfo()
+  const loraKey = loraInfo.id
+
   const handleToggle = (enabled: boolean) => {
-    const newConfig = { flux_nsfw: enabled ? 1.0 : 0.0 }
+    const newConfig = { [loraKey]: enabled ? 1.0 : 0.0 }
     setLocalConfig(newConfig)
     onChange(newConfig)
   }
 
-  const isEnabled = (localConfig.flux_nsfw || 0) > 0
+  const isEnabled = (localConfig[loraKey] || 0) > 0
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <label className="block text-sm font-medium text-gray-700">
-          LoRA Model
+          LoRA 增强模型
         </label>
       </div>
 
-      {/* FLUX NSFW Toggle */}
+      {/* LoRA Toggle */}
       <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
         <div className="flex items-center justify-between">
           <div className="flex-1">
             <div className="flex items-center space-x-2">
               <Wand2 className={`w-4 h-4 ${isEnabled ? 'text-green-600' : 'text-gray-400'}`} />
-              <span className="font-medium text-gray-900">FLUX NSFW</span>
+              <span className="font-medium text-gray-900">{loraInfo.name}</span>
               <span className={`text-sm font-medium ${isEnabled ? 'text-green-700' : 'text-gray-500'}`}>
                 {isEnabled ? 'ON' : 'OFF'}
               </span>
             </div>
-            <p className="text-xs text-gray-600 mt-1">NSFW content generation model</p>
+            <p className="text-xs text-gray-600 mt-1">{loraInfo.description}</p>
           </div>
           
           <label className="relative inline-flex items-center cursor-pointer">
@@ -81,10 +89,10 @@ export default function LoRASelector({ value, onChange, disabled }: LoRASelector
         <div className="flex items-start space-x-2">
           <Wand2 className="w-4 h-4 text-blue-600 mt-0.5" />
           <div className="text-xs text-blue-700">
-            <p className="font-medium mb-1">💡 LoRA Info:</p>
+            <p className="font-medium mb-1">💡 LoRA 说明:</p>
             <p className="text-blue-600">
-              Toggle to enable/disable NSFW content generation. 
-              When enabled, the model will be more responsive to adult content prompts.
+              LoRA模型会根据选择的基础模型风格自动配置。
+              开启后可以生成更符合预期的内容效果。
             </p>
           </div>
         </div>

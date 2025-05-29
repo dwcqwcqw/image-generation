@@ -74,68 +74,100 @@ CLOUDFLARE_R2_PUBLIC_DOMAIN = os.getenv("CLOUDFLARE_R2_PUBLIC_DOMAIN")  # 可选
 FLUX_BASE_PATH = "/runpod-volume/flux_base"
 FLUX_LORA_BASE_PATH = "/runpod-volume/lora"
 
-# 支持的LoRA模型列表 - 支持多LoRA和权重设置
+# 基础模型配置
+BASE_MODELS = {
+    "realistic": {
+        "name": "真人风格",
+        "base_path": "/runpod-volume/flux_base",
+        "lora_path": "/runpod-volume/lora/flux_nsfw",
+        "lora_id": "flux_nsfw"
+    },
+    "anime": {
+        "name": "动漫风格",
+        "base_path": "/runpod-volume/cartoon/waiNSFWIllustrious_v130.safetensors",
+        "lora_path": "/runpod-volume/cartoon/lora/Gayporn.safetensor",
+        "lora_id": "gayporn"
+    }
+}
+
+# 支持的LoRA模型列表 - 更新为支持不同基础模型
 AVAILABLE_LORAS = {
     "flux_nsfw": {
         "name": "FLUX NSFW",
         "path": "/runpod-volume/lora/flux_nsfw",
-        "description": "NSFW content generation model",
-        "default_weight": 1.0
+        "description": "NSFW真人内容生成模型",
+        "default_weight": 1.0,
+        "base_model": "realistic"
     },
+    "gayporn": {
+        "name": "Gayporn",
+        "path": "/runpod-volume/cartoon/lora/Gayporn.safetensor",
+        "description": "NSFW动漫内容生成模型",
+        "default_weight": 1.0,
+        "base_model": "anime"
+    },
+    # 保留其他LoRA以备扩展使用
     "UltraRealPhoto": {
         "name": "Ultra Real Photo",
         "path": "/runpod-volume/lora/UltraRealPhoto.safetensors",
         "description": "Ultra realistic photo generation",
-        "default_weight": 1.0
+        "default_weight": 1.0,
+        "base_model": "realistic"
     },
     "Chastity_Cage": {
         "name": "Chastity Cage",
         "path": "/runpod-volume/lora/Chastity_Cage.safetensors",
         "description": "Chastity device focused generation",
-        "default_weight": 0.5
+        "default_weight": 0.5,
+        "base_model": "realistic"
     },
     "DynamicPenis": {
         "name": "Dynamic Penis",
         "path": "/runpod-volume/lora/DynamicPenis.safetensors",
         "description": "Dynamic male anatomy generation",
-        "default_weight": 0.5
+        "default_weight": 0.5,
+        "base_model": "realistic"
     },
     "OnOff": {
         "name": "On Off",
         "path": "/runpod-volume/lora/OnOff.safetensors",
         "description": "Clothing on/off variations",
-        "default_weight": 0.5
+        "default_weight": 0.5,
+        "base_model": "realistic"
     },
     "Puppy_mask": {
         "name": "Puppy Mask",
         "path": "/runpod-volume/lora/Puppy_mask.safetensors",
         "description": "Puppy mask and pet play content",
-        "default_weight": 0.5
+        "default_weight": 0.5,
+        "base_model": "realistic"
     },
     "asianman": {
         "name": "Asian Man",
         "path": "/runpod-volume/lora/asianman.safetensors",
         "description": "Asian male character generation",
-        "default_weight": 0.5
+        "default_weight": 0.5,
+        "base_model": "realistic"
     },
     "butt-and-feet": {
         "name": "Butt and Feet",
         "path": "/runpod-volume/lora/butt-and-feet.safetensors",
         "description": "Focus on lower body parts",
-        "default_weight": 0.5
+        "default_weight": 0.5,
+        "base_model": "realistic"
     },
     "cumshots": {
         "name": "Cumshots",
         "path": "/runpod-volume/lora/cumshots.safetensors",
         "description": "Adult climax content generation",
-        "default_weight": 0.5
+        "default_weight": 0.5,
+        "base_model": "realistic"
     }
 }
 
-# 默认LoRA配置
+# 默认LoRA配置 - 根据基础模型
 DEFAULT_LORA_CONFIG = {
-    "flux_nsfw": 1.0,
-    "UltraRealPhoto": 1.0
+    "flux_nsfw": 1.0
 }
 
 # 初始化 Cloudflare R2 客户端
@@ -161,6 +193,7 @@ else:
 txt2img_pipe = None
 img2img_pipe = None
 current_lora_config = DEFAULT_LORA_CONFIG.copy()
+current_base_model = "realistic"  # 当前加载的基础模型
 
 # 全局变量存储compel处理器
 compel_proc = None
@@ -175,9 +208,26 @@ def get_device():
 
 def load_models():
     """加载 FLUX 模型 - 大幅性能优化版本"""
-    global txt2img_pipe, img2img_pipe
+    global txt2img_pipe, img2img_pipe, current_base_model
     
     print("🚀 Loading FLUX models with optimizations...")
+    start_time = datetime.now()
+    
+    # 默认加载真人风格模型
+    base_model_type = "realistic"
+    load_specific_model(base_model_type)
+
+def load_specific_model(base_model_type: str):
+    """加载指定的基础模型"""
+    global txt2img_pipe, img2img_pipe, current_base_model
+    
+    if base_model_type not in BASE_MODELS:
+        raise ValueError(f"Unknown base model type: {base_model_type}")
+    
+    model_config = BASE_MODELS[base_model_type]
+    base_path = model_config["base_path"]
+    
+    print(f"🎨 Loading {model_config['name']} model from {base_path}")
     start_time = datetime.now()
     
     # CUDA兼容性检查和修复
@@ -223,7 +273,7 @@ def load_models():
                 model_kwargs_with_device_map["device_map"] = "balanced"
                 
                 txt2img_pipe = FluxPipeline.from_pretrained(
-                    FLUX_BASE_PATH,
+                    base_path,
                     **model_kwargs_with_device_map
                 )
                 print("✅ Device mapping enabled with 'balanced' strategy")
@@ -233,14 +283,14 @@ def load_models():
                 print(f"⚠️  Device mapping failed ({device_map_error}), loading without device mapping")
                 # 回退到不使用设备映射
                 txt2img_pipe = FluxPipeline.from_pretrained(
-                    FLUX_BASE_PATH,
+                    base_path,
                     **model_kwargs
                 )
                 device_mapping_used = False
         else:
             # CPU模式直接加载
             txt2img_pipe = FluxPipeline.from_pretrained(
-                FLUX_BASE_PATH,
+                base_path,
                 **model_kwargs
             )
             device_mapping_used = False
@@ -269,16 +319,20 @@ def load_models():
         except Exception as e:
             print(f"⚠️  VAE optimizations not available: {e}")
         
-        # 加载默认 LoRA 权重 (必选)
+        # 加载对应的默认 LoRA 权重
         lora_start_time = datetime.now()
-        default_lora_key = "flux_nsfw"  # 主要默认LoRA
-        default_lora_path = AVAILABLE_LORAS[default_lora_key]["path"]
+        default_lora_path = model_config["lora_path"]
         if os.path.exists(default_lora_path):
-            print(f"🎨 Loading default LoRA: {AVAILABLE_LORAS[default_lora_key]['name']}")
+            print(f"🎨 Loading default LoRA for {model_config['name']}: {default_lora_path}")
             try:
                 txt2img_pipe.load_lora_weights(default_lora_path)
                 lora_time = (datetime.now() - lora_start_time).total_seconds()
-                print(f"✅ LoRA loaded in {lora_time:.2f}s: {AVAILABLE_LORAS[default_lora_key]['name']}")
+                print(f"✅ LoRA loaded in {lora_time:.2f}s")
+                
+                # 更新当前LoRA配置
+                global current_lora_config
+                current_lora_config = {model_config["lora_id"]: 1.0}
+                
             except ValueError as e:
                 if "PEFT backend is required" in str(e):
                     print("❌ ERROR: PEFT backend is required for LoRA support")
@@ -292,21 +346,7 @@ def load_models():
                 raise RuntimeError(f"Failed to load required LoRA model: {e}")
         else:
             print(f"❌ ERROR: Default LoRA weights not found at {default_lora_path}")
-            raise RuntimeError(f"Required LoRA model not found: {AVAILABLE_LORAS[default_lora_key]['name']}")
-        
-        # 验证其他可用的LoRA模型
-        available_loras = []
-        for lora_id, lora_info in AVAILABLE_LORAS.items():
-            if os.path.exists(lora_info["path"]):
-                available_loras.append(lora_id)
-                print(f"✅ Available LoRA: {lora_info['name']}")
-            else:
-                print(f"❌ Missing LoRA: {lora_info['name']} at {lora_info['path']}")
-        
-        if len(available_loras) == 0:
-            raise RuntimeError("No LoRA models found. LoRA models are required for this service.")
-        
-        print(f"📊 Total available LoRA models: {len(available_loras)}")
+            raise RuntimeError(f"Required LoRA model not found for {model_config['name']}")
         
         # 🎯 优化4: 智能设备移动（仅在未使用设备映射时）
         if not device_mapping_used:
@@ -342,13 +382,16 @@ def load_models():
         img_time = (datetime.now() - img_start_time).total_seconds()
         print(f"✅ Image-to-image pipeline created in {img_time:.2f}s")
         
+        # 更新当前基础模型
+        current_base_model = base_model_type
+        
         # 最终内存状态
         if torch.cuda.is_available():
             print(f"💾 GPU Memory after loading: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
             print(f"💾 GPU Memory reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
         
         total_time = (datetime.now() - start_time).total_seconds()
-        print(f"🎉 All models loaded successfully in {total_time:.2f}s!")
+        print(f"🎉 {model_config['name']} model loaded successfully in {total_time:.2f}s!")
         
         # 🎯 优化6: 预热推理 (可选)
         try:
@@ -368,7 +411,7 @@ def load_models():
         except Exception as e:
             print(f"⚠️  Model warmup failed (不影响正常使用): {e}")
         
-        print("🚀 System ready for image generation!")
+        print(f"🚀 {model_config['name']} system ready for image generation!")
         
         # 🎯 优化7: 长提示词支持 - 全新的实现方法
         global compel_proc
@@ -407,7 +450,7 @@ def load_models():
             print("Will use fallback chunking strategy for long prompts")
         
     except Exception as e:
-        print(f"❌ Error loading models: {str(e)}")
+        print(f"❌ Error loading {model_config['name']} model: {str(e)}")
         traceback.print_exc()
         raise e
 
@@ -489,7 +532,7 @@ def base64_to_image(base64_str: str) -> Image.Image:
 
 def text_to_image(params: dict) -> list:
     """文生图生成 - 优化版本 with long prompt support"""
-    global txt2img_pipe, compel_proc
+    global txt2img_pipe, compel_proc, current_base_model
     
     if txt2img_pipe is None:
         raise ValueError("Text-to-image model not loaded")
@@ -503,6 +546,18 @@ def text_to_image(params: dict) -> list:
     cfg_scale = params.get('cfgScale', 7.0)
     seed = params.get('seed', -1)
     num_images = params.get('numImages', 1)
+    base_model = params.get('baseModel', 'realistic')
+    lora_config = params.get('lora_config', {})
+    
+    # 检查是否需要切换基础模型
+    if base_model != current_base_model:
+        print(f"Switching base model for generation: {current_base_model} -> {base_model}")
+        switch_base_model(base_model)
+    
+    # 检查是否需要更新LoRA配置
+    if lora_config and lora_config != current_lora_config:
+        print(f"Updating LoRA config for generation: {lora_config}")
+        load_multiple_loras(lora_config)
     
     # 🎯 长提示词支持 - 全新方法：直接使用FLUX原生处理
     print(f"📝 Processing prompt: {len(prompt)} characters")
@@ -560,6 +615,7 @@ def text_to_image(params: dict) -> list:
                         'height': height,
                         'steps': steps,
                         'cfgScale': cfg_scale,
+                        'baseModel': base_model,
                         'createdAt': datetime.utcnow().isoformat(),
                         'type': 'text-to-image'
                     }
@@ -609,6 +665,7 @@ def text_to_image(params: dict) -> list:
                     'height': height,
                     'steps': steps,
                     'cfgScale': cfg_scale,
+                    'baseModel': base_model,
                     'createdAt': datetime.utcnow().isoformat(),
                     'type': 'text-to-image'
                 }
@@ -633,7 +690,7 @@ def text_to_image(params: dict) -> list:
 
 def image_to_image(params: dict) -> list:
     """图生图生成 - 优化版本"""
-    global img2img_pipe
+    global img2img_pipe, current_base_model
     
     if img2img_pipe is None:
         raise ValueError("Image-to-image model not loaded")
@@ -649,6 +706,18 @@ def image_to_image(params: dict) -> list:
     seed = params.get('seed', -1)
     num_images = params.get('numImages', 1)
     denoising_strength = params.get('denoisingStrength', 0.7)
+    base_model = params.get('baseModel', 'realistic')
+    lora_config = params.get('lora_config', {})
+    
+    # 检查是否需要切换基础模型
+    if base_model != current_base_model:
+        print(f"Switching base model for generation: {current_base_model} -> {base_model}")
+        switch_base_model(base_model)
+    
+    # 检查是否需要更新LoRA配置
+    if lora_config and lora_config != current_lora_config:
+        print(f"Updating LoRA config for generation: {lora_config}")
+        load_multiple_loras(lora_config)
     
     # 处理输入图像
     if isinstance(image_data, str):
@@ -704,6 +773,7 @@ def image_to_image(params: dict) -> list:
                         'height': height,
                         'steps': steps,
                         'cfgScale': cfg_scale,
+                        'baseModel': base_model,
                         'createdAt': datetime.utcnow().isoformat(),
                         'type': 'image-to-image',
                         'denoisingStrength': denoising_strength
@@ -761,6 +831,7 @@ def image_to_image(params: dict) -> list:
                     'height': height,
                     'steps': steps,
                     'cfgScale': cfg_scale,
+                    'baseModel': base_model,
                     'createdAt': datetime.utcnow().isoformat(),
                     'type': 'image-to-image',
                     'denoisingStrength': denoising_strength
@@ -895,6 +966,47 @@ def switch_lora(lora_id: str) -> bool:
             print(f"Failed to recover LoRA: {recovery_error}")
         raise RuntimeError(f"Failed to switch LoRA model: {str(e)}")
 
+def switch_base_model(base_model_type: str) -> bool:
+    """切换基础模型"""
+    global current_base_model
+    
+    if base_model_type not in BASE_MODELS:
+        raise ValueError(f"Unknown base model type: {base_model_type}")
+    
+    if current_base_model == base_model_type:
+        print(f"Base model {BASE_MODELS[base_model_type]['name']} is already loaded")
+        return True
+    
+    try:
+        print(f"Switching base model from {BASE_MODELS[current_base_model]['name']} to {BASE_MODELS[base_model_type]['name']}")
+        
+        # 释放当前模型内存
+        global txt2img_pipe, img2img_pipe
+        if txt2img_pipe is not None:
+            del txt2img_pipe
+        if img2img_pipe is not None:
+            del img2img_pipe
+        
+        # 清理GPU缓存
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        # 加载新的基础模型
+        load_specific_model(base_model_type)
+        
+        print(f"Successfully switched to {BASE_MODELS[base_model_type]['name']}")
+        return True
+        
+    except Exception as e:
+        print(f"Failed to switch base model: {str(e)}")
+        # 尝试恢复到之前的模型
+        try:
+            load_specific_model(current_base_model)
+            print(f"Recovered to previous model: {BASE_MODELS[current_base_model]['name']}")
+        except Exception as recovery_error:
+            print(f"Failed to recover base model: {recovery_error}")
+        raise RuntimeError(f"Failed to switch base model: {str(e)}")
+
 def handler(job):
     """RunPod 处理函数 - 优化版本"""
     try:
@@ -996,6 +1108,30 @@ def handler(job):
                 'data': results
             }
             
+        elif task_type == 'switch-base-model':
+            # 切换基础模型
+            base_model_type = job_input.get('base_model_type')
+            if not base_model_type:
+                return {
+                    'success': False,
+                    'error': 'base_model_type is required'
+                }
+            
+            success = switch_base_model(base_model_type)
+            
+            if success:
+                return {
+                    'success': True,
+                    'data': {
+                        'current_base_model': current_base_model
+                    }
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': f'Failed to switch to {base_model_type}'
+                }
+        
         else:
             return {
                 'success': False,

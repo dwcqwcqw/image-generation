@@ -1,3 +1,16 @@
+// 基础模型类型
+export type BaseModelType = 'realistic' | 'anime'
+
+// 基础模型配置
+export interface BaseModelConfig {
+  type: BaseModelType
+  name: string
+  description: string
+  basePath: string
+  loraPath: string
+  loraName: string
+}
+
 // LoRA配置类型
 export interface LoRAConfig {
   [loraId: string]: number // LoRA ID -> 权重 (0-1)
@@ -12,6 +25,7 @@ export interface TextToImageParams {
   cfgScale: number
   seed: number
   numImages: number
+  baseModel: BaseModelType // 新增：基础模型选择 (required)
   lora_config?: LoRAConfig // 支持多LoRA配置
   lora_model?: string // 保留兼容性
 }
@@ -27,6 +41,7 @@ export interface ImageToImageParams {
   seed: number
   numImages: number
   denoisingStrength: number
+  baseModel: BaseModelType // 新增：基础模型选择 (required)
   lora_config?: LoRAConfig // 支持多LoRA配置
   lora_model?: string // 保留兼容性
 }

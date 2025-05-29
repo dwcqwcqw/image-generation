@@ -17,15 +17,16 @@ import {
 } from 'lucide-react'
 import ImageGallery from './ImageGallery'
 import LoRASelector from './LoRASelector'
+import BaseModelSelector from './BaseModelSelector'
 import { generateTextToImage } from '@/services/api'
 import { downloadAllImages as downloadAllImagesUtil } from '@/utils/imageProxy'
-import type { TextToImageParams, GeneratedImage, LoRAConfig } from '@/types'
+import type { TextToImageParams, GeneratedImage, LoRAConfig, BaseModelType } from '@/types'
 
 type GenerationStatus = 'idle' | 'pending' | 'success' | 'error' | 'cancelled'
 
 export default function TextToImagePanel() {
   const [status, setStatus] = useState<GenerationStatus>('idle')
-  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false)
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(true)
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([])
   const [currentGenerationImages, setCurrentGenerationImages] = useState<GeneratedImage[]>([])
   const [historyImages, setHistoryImages] = useState<GeneratedImage[]>([])
@@ -47,6 +48,7 @@ export default function TextToImagePanel() {
     cfgScale: 7.0,
     seed: -1,
     numImages: 1,
+    baseModel: 'realistic',
     lora_config: defaultLoRAConfig,
   })
 
@@ -275,6 +277,25 @@ export default function TextToImagePanel() {
             <LoRASelector
               value={params.lora_config || defaultLoRAConfig}
               onChange={(loraConfig) => setParams(prev => ({ ...prev, lora_config: loraConfig }))}
+              baseModel={params.baseModel}
+              disabled={status === 'pending'}
+            />
+
+            {/* Base Model Selector */}
+            <BaseModelSelector
+              value={params.baseModel}
+              onChange={(baseModel) => {
+                // 根据基础模型自动配置对应的LoRA
+                const newLoRAConfig: LoRAConfig = baseModel === 'realistic' 
+                  ? { flux_nsfw: 1.0 } 
+                  : { gayporn: 1.0 }
+                
+                setParams(prev => ({ 
+                  ...prev, 
+                  baseModel,
+                  lora_config: newLoRAConfig
+                }))
+              }}
               disabled={status === 'pending'}
             />
 
