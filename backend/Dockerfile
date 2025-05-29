@@ -55,5 +55,5 @@ RUN mkdir -p /runpod-volume
 # Expose port (if needed for local testing)
 EXPOSE 8000
 
-# Start the handler
-CMD ["python", "handler.py"] 
+# Start the handler using the debug/check script
+CMD ["python", "-u", "start_debug.py"] 
