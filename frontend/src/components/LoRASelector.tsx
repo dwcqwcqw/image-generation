@@ -61,7 +61,7 @@ const AVAILABLE_LORAS = {
 
 export default function LoRASelector({ value, onChange, disabled }: LoRASelectorProps) {
   const [localConfig, setLocalConfig] = useState<LoRAConfig>(value)
-  const [showInactive, setShowInactive] = useState(false)
+  const [showInactive, setShowInactive] = useState(true)
 
   // 同步外部值变化
   useEffect(() => {
@@ -108,7 +108,7 @@ export default function LoRASelector({ value, onChange, disabled }: LoRASelector
           <button
             onClick={() => setShowInactive(!showInactive)}
             className="p-1 text-gray-500 hover:text-gray-700 transition-colors"
-            title={showInactive ? "Hide inactive models" : "Show all models"}
+            title={showInactive ? "Hide inactive models" : "Show inactive models"}
           >
             {showInactive ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>
@@ -167,10 +167,10 @@ export default function LoRASelector({ value, onChange, disabled }: LoRASelector
       )}
 
       {/* Inactive LoRAs */}
-      {(showInactive || inactiveLoRAs.length === Object.keys(AVAILABLE_LORAS).length) && (
+      {(showInactive || inactiveLoRAs.length > 0) && inactiveLoRAs.length > 0 && (
         <div className="space-y-3">
           <h4 className="text-xs font-medium text-gray-600 uppercase tracking-wider">
-            {showInactive ? `Inactive Models (${inactiveLoRAs.length})` : 'Available Models'}
+            {showInactive ? `Available Models (${inactiveLoRAs.length})` : 'More Models Available'}
           </h4>
           {inactiveLoRAs.map(([loraId, lora]) => (
             <div key={loraId} className="p-3 bg-gray-50 border border-gray-200 rounded-lg">

@@ -41,7 +41,14 @@ export default function ImageToImagePanel() {
   // 默认LoRA配置
   const defaultLoRAConfig: LoRAConfig = {
     flux_nsfw: 1.0,
-    UltraRealPhoto: 1.0
+    UltraRealPhoto: 1.0,
+    Chastity_Cage: 0.5,
+    DynamicPenis: 0.5,
+    OnOff: 0.5,
+    Puppy_mask: 0.5,
+    asianman: 0.5,
+    'butt-and-feet': 0.5,
+    cumshots: 0.5
   }
   
   const [params, setParams] = useState<ImageToImageParams>({
