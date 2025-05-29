@@ -13,6 +13,15 @@ from botocore.config import Config
 import sys
 import traceback
 
+# 导入compel用于处理长提示词
+try:
+    from compel import Compel
+    COMPEL_AVAILABLE = True
+    print("✓ Compel library loaded for long prompt support")
+except ImportError:
+    COMPEL_AVAILABLE = False
+    print("⚠️  Compel library not available - long prompt support limited")
+
 # 兼容性修复：为旧版本PyTorch添加get_default_device函数
 if not hasattr(torch, 'get_default_device'):
     def get_default_device():
@@ -67,20 +76,15 @@ FLUX_LORA_BASE_PATH = "/runpod-volume"
 
 # 支持的LoRA模型列表
 AVAILABLE_LORAS = {
-    "flux-uncensored-v2": {
-        "name": "FLUX Uncensored V2",
-        "path": "/runpod-volume/Flux-Uncensored-V2",
-        "description": "Enhanced uncensored model for creative freedom"
-    },
     "flux-nsfw": {
         "name": "FLUX NSFW",
         "path": "/runpod-volume/flux_nsfw",
-        "description": "NSFW content generation model"
+        "description": "NSFW content generation model with enhanced capabilities"
     }
 }
 
 # 默认LoRA
-DEFAULT_LORA = "flux-uncensored-v2"
+DEFAULT_LORA = "flux-nsfw"
 
 # 初始化 Cloudflare R2 客户端
 r2_client = None
@@ -105,6 +109,10 @@ else:
 txt2img_pipe = None
 img2img_pipe = None
 current_lora = DEFAULT_LORA
+
+# 全局变量存储compel处理器
+compel_proc = None
+compel_proc_neg = None
 
 def get_device():
     """获取设备，兼容不同PyTorch版本"""
@@ -309,6 +317,26 @@ def load_models():
         
         print("🚀 System ready for image generation!")
         
+        # 🎯 优化7: 初始化Compel用于长提示词支持
+        global compel_proc
+        compel_proc = None
+        
+        if COMPEL_AVAILABLE:
+            try:
+                print("🔤 Initializing Compel for long prompt support...")
+                compel_proc = Compel(
+                    tokenizer=[txt2img_pipe.tokenizer, txt2img_pipe.tokenizer_2],
+                    text_encoder=[txt2img_pipe.text_encoder, txt2img_pipe.text_encoder_2],
+                    device=txt2img_pipe.device,
+                    dtype=torch.float16 if device == "cuda" else torch.float32,
+                )
+                print("✅ Compel initialized - now supports prompts up to 512 tokens!")
+            except Exception as e:
+                print(f"⚠️  Compel initialization failed: {e}")
+                compel_proc = None
+        else:
+            print("⚠️  Compel not available - prompt limited to 77 tokens")
+        
     except Exception as e:
         print(f"❌ Error loading models: {str(e)}")
         traceback.print_exc()
@@ -391,8 +419,8 @@ def base64_to_image(base64_str: str) -> Image.Image:
     return image.convert('RGB')
 
 def text_to_image(params: dict) -> list:
-    """文生图生成 - 优化版本"""
-    global txt2img_pipe
+    """文生图生成 - 优化版本 with long prompt support"""
+    global txt2img_pipe, compel_proc
     
     if txt2img_pipe is None:
         raise ValueError("Text-to-image model not loaded")
@@ -407,12 +435,68 @@ def text_to_image(params: dict) -> list:
     seed = params.get('seed', -1)
     num_images = params.get('numImages', 1)
     
+    # 🎯 长提示词支持 - 解决77 token限制
+    print(f"📝 Processing prompt: {len(prompt)} characters")
+    
+    # 处理长提示词
+    processed_prompt = prompt
+    processed_negative_prompt = negative_prompt
+    
+    if compel_proc and len(prompt) > 300:  # 估算超过77 tokens的情况
+        try:
+            print("🔍 Long prompt detected, using Compel for extended token support...")
+            # 使用compel处理长提示词
+            prompt_embeds = compel_proc(prompt)
+            
+            # 处理负面提示词
+            if negative_prompt:
+                negative_prompt_embeds = compel_proc(negative_prompt)
+            else:
+                negative_prompt_embeds = compel_proc("")
+                
+            print(f"✅ Compel processed prompt successfully")
+            
+            # 使用embedding而不是文本提示词
+            generation_kwargs = {
+                "prompt_embeds": prompt_embeds,
+                "negative_prompt_embeds": negative_prompt_embeds,
+                "width": width,
+                "height": height,
+                "num_inference_steps": steps,
+                "guidance_scale": cfg_scale,
+                "generator": None,  # 稍后设置
+            }
+        except Exception as e:
+            print(f"⚠️  Compel processing failed, using standard prompt: {e}")
+            # 回退到标准提示词处理
+            generation_kwargs = {
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "width": width,
+                "height": height,
+                "num_inference_steps": steps,
+                "guidance_scale": cfg_scale,
+                "generator": None,  # 稍后设置
+            }
+    else:
+        # 使用标准提示词处理
+        generation_kwargs = {
+            "prompt": prompt,
+            "negative_prompt": negative_prompt,
+            "width": width,
+            "height": height,
+            "num_inference_steps": steps,
+            "guidance_scale": cfg_scale,
+            "generator": None,  # 稍后设置
+        }
+    
     # 设置随机种子
     if seed == -1:
         seed = torch.randint(0, 2**32 - 1, (1,)).item()
     
     generator = torch.Generator(device=txt2img_pipe.device).manual_seed(seed)
-    
+    generation_kwargs["generator"] = generator
+
     results = []
     
     # 优化：批量生成时一次性生成所有图片，而不是循环
@@ -421,16 +505,9 @@ def text_to_image(params: dict) -> list:
             print(f"Batch generating {num_images} images...")
             # 生成图像
             with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
-                result = txt2img_pipe(
-                    prompt=prompt,
-                    negative_prompt=negative_prompt,
-                    width=width,
-                    height=height,
-                    num_inference_steps=steps,
-                    guidance_scale=cfg_scale,
-                    generator=generator,
-                    num_images_per_prompt=num_images
-                )
+                batch_kwargs = generation_kwargs.copy()
+                batch_kwargs["num_images_per_prompt"] = num_images
+                result = txt2img_pipe(**batch_kwargs)
             
             # 处理批量生成的图片
             for i, image in enumerate(result.images):
@@ -478,16 +555,9 @@ def text_to_image(params: dict) -> list:
                     if torch.cuda.is_available() and i > 0:
                         torch.cuda.empty_cache()
                         
-                    result = txt2img_pipe(
-                        prompt=prompt,
-                        negative_prompt=negative_prompt,
-                        width=width,
-                        height=height,
-                        num_inference_steps=steps,
-                        guidance_scale=cfg_scale,
-                        generator=generator,
-                        num_images_per_prompt=1
-                    )
+                    single_kwargs = generation_kwargs.copy()
+                    single_kwargs["num_images_per_prompt"] = 1
+                    result = txt2img_pipe(**single_kwargs)
                 
                 image = result.images[0]
                 
@@ -518,6 +588,7 @@ def text_to_image(params: dict) -> list:
                 if i < num_images - 1:
                     seed += 1
                     generator = torch.Generator(device=txt2img_pipe.device).manual_seed(seed)
+                    generation_kwargs["generator"] = generator
                     
             except Exception as e:
                 print(f"Error generating image {i+1}: {str(e)}")
