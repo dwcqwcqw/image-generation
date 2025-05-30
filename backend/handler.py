@@ -498,6 +498,71 @@ def base64_to_image(base64_str: str) -> Image.Image:
     image = Image.open(io.BytesIO(image_data))
     return image.convert('RGB')
 
+def process_long_prompt(prompt: str, max_clip_tokens: int = 75, max_t5_tokens: int = 500) -> tuple:
+    """
+    处理长提示词，为FLUX的双编码器系统优化
+    
+    Args:
+        prompt: 输入提示词
+        max_clip_tokens: CLIP编码器最大token数（默认75，留2个特殊token空间）
+        max_t5_tokens: T5编码器最大token数（默认500，留空间给特殊token）
+    
+    Returns:
+        tuple: (clip_prompt, t5_prompt)
+    """
+    if not prompt:
+        return "", ""
+    
+    # 简单的token估算（按空格和逗号分割）
+    words = prompt.replace(',', ' , ').split()
+    estimated_tokens = len(words)
+    
+    print(f"📏 Prompt analysis: {len(prompt)} chars, ~{estimated_tokens} tokens")
+    
+    if estimated_tokens <= max_clip_tokens:
+        # 短prompt：两个编码器都使用完整prompt
+        print("✅ Short prompt: using full prompt for both CLIP and T5")
+        return prompt, prompt
+    else:
+        # 长prompt：CLIP使用截断版本，T5使用完整版本（如果不超过512token）
+        if estimated_tokens <= max_t5_tokens:
+            # 为CLIP创建截断版本，保持语义完整性
+            clip_words = words[:max_clip_tokens]
+            # 尝试在句号或逗号处截断以保持语义
+            for i in range(len(clip_words) - 1, max(0, len(clip_words) - 10), -1):
+                if clip_words[i].endswith(('.', ',', ';')):
+                    clip_words = clip_words[:i+1]
+                    break
+            
+            clip_prompt = ' '.join(clip_words).replace(' , ', ', ')
+            print(f"📝 Long prompt optimization:")
+            print(f"   CLIP prompt: ~{len(clip_words)} tokens (truncated)")
+            print(f"   T5 prompt: ~{estimated_tokens} tokens (full)")
+            return clip_prompt, prompt
+        else:
+            # 超长prompt：两个编码器都需要截断
+            clip_words = words[:max_clip_tokens]
+            t5_words = words[:max_t5_tokens]
+            
+            # 尝试在合适位置截断
+            for i in range(len(clip_words) - 1, max(0, len(clip_words) - 10), -1):
+                if clip_words[i].endswith(('.', ',', ';')):
+                    clip_words = clip_words[:i+1]
+                    break
+                    
+            for i in range(len(t5_words) - 1, max(0, len(t5_words) - 20), -1):
+                if t5_words[i].endswith(('.', ',', ';')):
+                    t5_words = t5_words[:i+1]
+                    break
+            
+            clip_prompt = ' '.join(clip_words).replace(' , ', ', ')
+            t5_prompt = ' '.join(t5_words).replace(' , ', ', ')
+            
+            print(f"⚠️  Ultra-long prompt: both encoders truncated")
+            print(f"   CLIP prompt: ~{len(clip_words)} tokens")
+            print(f"   T5 prompt: ~{len(t5_words)} tokens")
+            return clip_prompt, t5_prompt
+
 def text_to_image(params: dict) -> list:
     """文生图生成 - 优化版本 with long prompt support"""
     global txt2img_pipe, current_base_model
@@ -574,10 +639,15 @@ def text_to_image(params: dict) -> list:
 
             # Encode positive prompt with memory management
             print("🔤 Encoding positive prompt...")
+            
+            # 🎯 优化长提示词处理：为FLUX双编码器系统优化
+            clip_prompt, t5_prompt = process_long_prompt(prompt)
+            clip_negative, t5_negative = process_long_prompt(negative_prompt) if negative_prompt else ("", "")
+            
             with torch.cuda.amp.autocast(enabled=False):  # Disable autocast to reduce memory
                 prompt_embeds_obj = txt2img_pipe.encode_prompt(
-                    prompt=prompt,
-                    prompt_2=prompt, # Added for FLUX dual encoder
+                    prompt=clip_prompt,    # CLIP编码器使用优化后的prompt（最多77 tokens）
+                    prompt_2=t5_prompt,    # T5编码器使用完整prompt（最多512 tokens）
                     device=device,
                     num_images_per_prompt=1 
                 )
@@ -600,8 +670,8 @@ def text_to_image(params: dict) -> list:
             current_negative_prompt = negative_prompt if negative_prompt else ""
             with torch.cuda.amp.autocast(enabled=False):  # Disable autocast to reduce memory
                 negative_prompt_embeds_obj = txt2img_pipe.encode_prompt(
-                    prompt=current_negative_prompt, 
-                    prompt_2=current_negative_prompt, # Added for FLUX dual encoder
+                    prompt=clip_negative,    # CLIP编码器使用优化后的负prompt（最多77 tokens）
+                    prompt_2=t5_negative,    # T5编码器使用完整负prompt（最多512 tokens）
                     device=device,
                     num_images_per_prompt=1
                 )
@@ -878,10 +948,15 @@ def image_to_image(params: dict) -> list:
 
             # Encode positive prompt with memory management
             print("🔤 Encoding positive prompt for img2img...")
+            
+            # 🎯 优化长提示词处理：为FLUX双编码器系统优化
+            clip_prompt, t5_prompt = process_long_prompt(prompt)
+            clip_negative, t5_negative = process_long_prompt(negative_prompt) if negative_prompt else ("", "")
+            
             with torch.cuda.amp.autocast(enabled=False):
                 prompt_embeds_obj = img2img_pipe.encode_prompt(
-                    prompt=prompt,
-                    prompt_2=prompt, # Added for FLUX dual encoder
+                    prompt=clip_prompt,    # CLIP编码器使用优化后的prompt（最多77 tokens）
+                    prompt_2=t5_prompt,    # T5编码器使用完整prompt（最多512 tokens）
                     device=device,
                     num_images_per_prompt=1
                 )
@@ -903,8 +978,8 @@ def image_to_image(params: dict) -> list:
             current_negative_prompt = negative_prompt if negative_prompt else ""
             with torch.cuda.amp.autocast(enabled=False):
                 negative_prompt_embeds_obj = img2img_pipe.encode_prompt(
-                    prompt=current_negative_prompt,
-                    prompt_2=current_negative_prompt, # Added for FLUX dual encoder
+                    prompt=clip_negative,    # CLIP编码器使用优化后的负prompt（最多77 tokens）
+                    prompt_2=t5_negative,    # T5编码器使用完整负prompt（最多512 tokens）
                     device=device,
                     num_images_per_prompt=1
                 )
