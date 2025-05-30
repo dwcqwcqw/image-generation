@@ -10,7 +10,8 @@ import {
   downloadCloudflareImage, 
   downloadAllCloudflareImages,
   debugImageUrl,
-  getProxyImageUrl
+  getProxyImageUrl,
+  getSecondaryProxyUrl
 } from '@/utils/cloudflareImageProxy'
 
 interface ImageGalleryProps {
@@ -188,9 +189,14 @@ export default function ImageGallery({
                 console.error('Image load error for:', image.url)
                 debugImageUrl(image.url)
                 const target = e.target as HTMLImageElement
+                
+                // 多重回退策略
                 if (target.src === getCloudflareImageUrl(image.url)) {
-                  console.log('Trying proxy URL as fallback')
+                  console.log('Trying primary proxy URL as fallback')
                   target.src = getProxyImageUrl(image.url)
+                } else if (target.src === getProxyImageUrl(image.url)) {
+                  console.log('Trying secondary proxy URL')
+                  target.src = getSecondaryProxyUrl(image.url)
                 } else if (target.src !== image.url) {
                   console.log('Trying original URL as final fallback')
                   target.src = image.url

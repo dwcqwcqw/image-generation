@@ -43,14 +43,14 @@ export function needsProxy(url: string): boolean {
 export function getCloudflareImageUrl(originalUrl: string): string {
   console.log('[Image URL] Processing URL:', originalUrl)
   
-  // 优先策略：直接使用原始URL（因为CORS已配置）
-  if (needsProxy(originalUrl)) {
-    console.log('[Image URL] R2 URL detected, using direct access with CORS')
-    return originalUrl
+  // 在Cloudflare Pages环境，优先使用代理（因为CORS仍有问题）
+  if (needsProxy(originalUrl) && isCloudflarePages()) {
+    console.log('[Image URL] Cloudflare Pages detected, using proxy for R2 URL')
+    return `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`
   }
-
-  // 非R2 URL直接返回
-  console.log('[Image URL] Non-R2 URL, returning as-is')
+  
+  // 开发环境或非R2 URL直接返回
+  console.log('[Image URL] Using direct access')
   return originalUrl
 }
 
@@ -65,6 +65,16 @@ export function getProxyImageUrl(originalUrl: string): string {
     }
     // 开发环境使用API代理
     return `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`
+  }
+  return originalUrl
+}
+
+/**
+ * 获取第二备用代理URL
+ */
+export function getSecondaryProxyUrl(originalUrl: string): string {
+  if (needsProxy(originalUrl)) {
+    return `/image-proxy?url=${encodeURIComponent(originalUrl)}`
   }
   return originalUrl
 }
