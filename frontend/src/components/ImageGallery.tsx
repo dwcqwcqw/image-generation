@@ -8,7 +8,8 @@ import type { GeneratedImage } from '@/types'
 import { 
   getCloudflareImageUrl, 
   downloadCloudflareImage, 
-  downloadAllCloudflareImages 
+  downloadAllCloudflareImages,
+  debugImageUrl
 } from '@/utils/cloudflareImageProxy'
 
 interface ImageGalleryProps {
@@ -184,6 +185,7 @@ export default function ImageGallery({
               sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
               onError={(e) => {
                 console.error('Image load error for:', image.url)
+                debugImageUrl(image.url)
                 const target = e.target as HTMLImageElement
                 if (target.src !== image.url) {
                   target.src = image.url

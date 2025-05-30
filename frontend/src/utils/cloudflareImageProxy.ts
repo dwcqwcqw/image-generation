@@ -41,77 +41,40 @@ export function needsProxy(url: string): boolean {
  * Cloudflare Pages优化的图片URL获取
  */
 export function getCloudflareImageUrl(originalUrl: string): string {
-  if (!needsProxy(originalUrl)) {
+  console.log('[Image URL] Processing URL:', originalUrl)
+  
+  // 优先策略：直接使用原始URL（因为CORS已配置）
+  if (needsProxy(originalUrl)) {
+    console.log('[Image URL] R2 URL detected, using direct access with CORS')
     return originalUrl
   }
 
-  // 策略1: 如果在Cloudflare Pages环境且有直连配置，尝试添加CORS头
-  if (isCloudflarePages()) {
-    try {
-      const urlObj = new URL(originalUrl)
-      // 添加Cloudflare的CORS参数（如果R2支持）
-      urlObj.searchParams.set('cf-cache', '1')
-      return urlObj.toString()
-    } catch {
-      // 如果URL解析失败，继续原来的逻辑
-    }
-  }
-
-  // 策略2: 使用API代理（仅在开发环境或支持的环境）
-  if (!isCloudflarePages()) {
-    const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`
-    console.log('Using API proxy for:', originalUrl)
-    return proxyUrl
-  }
-
-  // 策略3: Cloudflare Pages环境直接返回原URL（可能需要其他配置）
-  console.log('Cloudflare Pages: Using direct URL:', originalUrl)
+  // 非R2 URL直接返回
+  console.log('[Image URL] Non-R2 URL, returning as-is')
   return originalUrl
 }
 
 /**
- * 增强的图片预加载 - 支持多种加载策略
+ * 增强的图片预加载 - 使用直接URL访问
  */
 export function preloadCloudflareImage(originalUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const img = new Image()
+    console.log('[Image Preload] Starting preload for:', originalUrl)
     
-    // 添加CORS属性
+    const img = new Image()
     img.crossOrigin = 'anonymous'
     
-    const tryUrls = [
-      getCloudflareImageUrl(originalUrl),
-      originalUrl,
-      // 备用URL策略
-      originalUrl.replace('r2.cloudflarestorage.com', 'pub-cb95af834c6b4d0d9b55f72e0f5e7d3d.r2.dev')
-    ]
-    
-    let currentIndex = 0
-    
-    function tryNextUrl() {
-      if (currentIndex >= tryUrls.length) {
-        reject(new Error('All image loading strategies failed'))
-        return
-      }
-      
-      const currentUrl = tryUrls[currentIndex]
-      console.log(`Trying image URL ${currentIndex + 1}:`, currentUrl)
-      
-      img.onload = () => {
-        console.log('Image loaded successfully:', currentUrl)
-        resolve(currentUrl)
-      }
-      
-      img.onerror = () => {
-        console.log('Image load failed:', currentUrl)
-        currentIndex++
-        tryNextUrl()
-      }
-      
-      img.src = currentUrl
+    img.onload = () => {
+      console.log('[Image Preload] Successfully loaded:', originalUrl)
+      resolve(originalUrl)
     }
     
-    tryNextUrl()
+    img.onerror = (error) => {
+      console.error('[Image Preload] Failed to load:', originalUrl, error)
+      reject(new Error(`Failed to load image: ${originalUrl}`))
+    }
+    
+    img.src = originalUrl
   })
 }
 
@@ -122,12 +85,12 @@ export async function downloadCloudflareImage(
   originalUrl: string, 
   filename: string = 'image.png'
 ): Promise<void> {
-  console.log('Starting Cloudflare-optimized download:', originalUrl)
+  console.log('[Download] Starting download for:', originalUrl)
 
   // 策略1: 直接下载链接
   try {
     const link = document.createElement('a')
-    link.href = getCloudflareImageUrl(originalUrl)
+    link.href = originalUrl
     link.download = filename.endsWith('.png') ? filename : `${filename}.png`
     link.target = '_blank'
     link.rel = 'noopener noreferrer'
@@ -136,15 +99,15 @@ export async function downloadCloudflareImage(
     link.click()
     document.body.removeChild(link)
     
-    console.log('Direct download initiated')
+    console.log('[Download] Direct download link created')
     return
   } catch (error) {
-    console.log('Direct download failed:', error)
+    console.log('[Download] Direct download failed:', error)
   }
 
-  // 策略2: Fetch下载（如果支持CORS）
+  // 策略2: Fetch下载（CORS已配置）
   try {
-    const response = await fetch(getCloudflareImageUrl(originalUrl), {
+    const response = await fetch(originalUrl, {
       mode: 'cors',
       credentials: 'omit',
       headers: {
@@ -164,16 +127,18 @@ export async function downloadCloudflareImage(
       document.body.removeChild(link)
       
       window.URL.revokeObjectURL(url)
-      console.log('Fetch download successful')
+      console.log('[Download] Fetch download successful')
       return
+    } else {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
     }
   } catch (error) {
-    console.log('Fetch download failed:', error)
+    console.log('[Download] Fetch download failed:', error)
   }
 
   // 策略3: 新窗口打开
-  console.log('Falling back to new window')
-  window.open(getCloudflareImageUrl(originalUrl), '_blank')
+  console.log('[Download] Falling back to new window')
+  window.open(originalUrl, '_blank')
   throw new Error('Download failed, opened in new window')
 }
 
@@ -203,4 +168,27 @@ export async function downloadAllCloudflareImages(
   }
   
   console.log('Cloudflare batch download completed')
+}
+
+/**
+ * 调试函数：验证图片URL处理
+ */
+export function debugImageUrl(originalUrl: string): void {
+  console.group('[Image URL Debug]')
+  console.log('Original URL:', originalUrl)
+  console.log('Needs proxy:', needsProxy(originalUrl))
+  console.log('Is Cloudflare Pages:', isCloudflarePages())
+  console.log('Has RunPod config:', hasRunPodDirectConfig())
+  console.log('Final URL:', getCloudflareImageUrl(originalUrl))
+  
+  // 测试URL可访问性
+  if (originalUrl) {
+    const testImg = new Image()
+    testImg.crossOrigin = 'anonymous'
+    testImg.onload = () => console.log('✅ URL accessible via direct load')
+    testImg.onerror = () => console.log('❌ URL failed direct load')
+    testImg.src = originalUrl
+  }
+  
+  console.groupEnd()
 } 
