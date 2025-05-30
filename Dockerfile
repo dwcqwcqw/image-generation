@@ -77,6 +77,7 @@ ENV CLOUDFLARE_R2_SECRET_KEY=a4415c670e669229db451ea7b38544c0a2e44dbe630f1f35f99
 ENV CLOUDFLARE_R2_BUCKET=image-generation
 ENV CLOUDFLARE_R2_ENDPOINT=https://c7c141ce43d175e60601edc46d904553.r2.cloudflarestorage.com
 ENV CLOUDFLARE_R2_PUBLIC_DOMAIN=${CLOUDFLARE_R2_PUBLIC_DOMAIN}
+ENV CLOUDFLARE_R2_PUBLIC_BUCKET_DOMAIN=pub-5a18b069cd06445889010bf8c29132d6.r2.dev
 
 # Add health check with longer timeout for model loading
 HEALTHCHECK --interval=60s --timeout=30s --start-period=300s --retries=3 \
