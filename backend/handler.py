@@ -543,13 +543,16 @@ def text_to_image(params: dict) -> list:
         # Encode positive prompt
         prompt_embeds_obj = txt2img_pipe.encode_prompt(
             prompt=prompt,
+            prompt_2=prompt,
             device=device,
-            num_images_per_prompt=1 # Encode for a single image initially
+            num_images_per_prompt=1 
         )
 
         # Encode negative prompt
+        current_negative_prompt = negative_prompt if negative_prompt else ""
         negative_prompt_embeds_obj = txt2img_pipe.encode_prompt(
-            prompt=negative_prompt if negative_prompt else "", 
+            prompt=current_negative_prompt, 
+            prompt_2=current_negative_prompt,
             device=device,
             num_images_per_prompt=1
         )
@@ -770,13 +773,16 @@ def image_to_image(params: dict) -> list:
         # Encode positive prompt
         prompt_embeds_obj = img2img_pipe.encode_prompt(
             prompt=prompt,
+            prompt_2=prompt,
             device=device,
             num_images_per_prompt=1
         )
 
         # Encode negative prompt
+        current_negative_prompt = negative_prompt if negative_prompt else ""
         negative_prompt_embeds_obj = img2img_pipe.encode_prompt(
-            prompt=negative_prompt if negative_prompt else "",
+            prompt=current_negative_prompt,
+            prompt_2=current_negative_prompt,
             device=device,
             num_images_per_prompt=1
         )
