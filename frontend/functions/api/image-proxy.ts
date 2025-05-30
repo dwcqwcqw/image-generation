@@ -1,124 +1,82 @@
 /**
- * Cloudflare Pages Function for Image Proxy
- * 专门为Cloudflare Pages环境设计的图片代理API
+ * Cloudflare Pages Function: Image Proxy with CORS Support
+ * Handles CORS issues when accessing R2 storage from Pages
  */
 
-interface Env {
-  // Cloudflare Pages环境变量
-}
+export async function onRequest(context: any) {
+  const { request } = context;
+  const url = new URL(request.url);
+  const targetUrl = url.searchParams.get('url');
 
-export async function onRequestGet(context: any): Promise<Response> {
-  try {
-    const { request } = context
-    const url = new URL(request.url)
-    const imageUrl = url.searchParams.get('url')
-    
-    if (!imageUrl) {
-      return new Response(JSON.stringify({ error: 'Missing image URL' }), {
-        status: 400,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      })
-    }
-
-    console.log('Cloudflare Pages Image Proxy:', imageUrl)
-
-    // 验证URL域名
-    const allowedDomains = [
-      'r2.cloudflarestorage.com',
-      'pub-cb95af834c6b4d0d9b55f72e0f5e7d3d.r2.dev',
-      'image-generation.c7c141c',
-      'cloudflarestorage.com'
-    ]
-
-    let isAllowed = false
-    try {
-      const urlObj = new URL(imageUrl)
-      isAllowed = allowedDomains.some(domain => 
-        urlObj.hostname.includes(domain)
-      )
-    } catch (error) {
-      return new Response(JSON.stringify({ error: 'Invalid image URL format' }), {
-        status: 400,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      })
-    }
-
-    if (!isAllowed) {
-      return new Response(JSON.stringify({ error: 'Invalid image URL domain' }), {
-        status: 403,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      })
-    }
-
-    // 获取图片数据
-    const response = await fetch(imageUrl, {
+  // CORS preflight handling
+  if (request.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 200,
       headers: {
-        'User-Agent': 'CF-Pages-Image-Proxy/1.0',
-        'Accept': 'image/*',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+        'Access-Control-Allow-Headers': '*',
+        'Access-Control-Max-Age': '86400',
       },
-    })
+    });
+  }
+
+  if (!targetUrl) {
+    return new Response('Missing url parameter', { 
+      status: 400,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'text/plain',
+      }
+    });
+  }
+
+  try {
+    console.log('[Image Proxy] Proxying request to:', targetUrl);
+    
+    // Fetch the image from R2
+    const response = await fetch(targetUrl, {
+      method: request.method,
+      headers: {
+        'Accept': 'image/*',
+        'User-Agent': 'Cloudflare-Pages-Function',
+      },
+    });
 
     if (!response.ok) {
-      return new Response(JSON.stringify({ 
-        error: `Failed to fetch image: HTTP ${response.status}` 
-      }), {
-        status: response.status,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      })
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const imageData = await response.arrayBuffer()
-    const contentType = response.headers.get('content-type') || 'image/png'
+    // Get the image data
+    const imageData = await response.arrayBuffer();
+    const contentType = response.headers.get('content-type') || 'image/png';
 
-    // 返回图片数据
+    console.log('[Image Proxy] Successfully proxied image, size:', imageData.byteLength);
+
+    // Return the image with CORS headers
     return new Response(imageData, {
       status: 200,
       headers: {
         'Content-Type': contentType,
-        'Content-Length': imageData.byteLength.toString(),
-        'Cache-Control': 'public, max-age=86400', // 24小时缓存
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'CF-Cache-Status': 'HIT',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+        'Access-Control-Allow-Headers': '*',
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        'Content-Length': imageData.byteLength.toString(),
       },
-    })
+    });
 
   } catch (error) {
-    console.error('Cloudflare Pages Image Proxy Error:', error)
-    return new Response(JSON.stringify({ 
-      error: 'Internal server error', 
-      details: String(error) 
-    }), {
+    console.error('[Image Proxy] Error:', error);
+    
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    return new Response(`Proxy error: ${errorMessage}`, {
       status: 500,
       headers: {
-        'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'text/plain',
       },
-    })
+    });
   }
-}
-
-// 处理OPTIONS请求 (CORS preflight)
-export async function onRequestOptions(): Promise<Response> {
-  return new Response(null, {
-    status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    },
-  })
 } 

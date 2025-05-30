@@ -1,0 +1,42 @@
+# Cloudflare Pages Headers Configuration
+# This file adds security and performance headers to static assets served by Pages
+
+# Apply to all routes
+/*
+  # Security Headers
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-XSS-Protection: 1; mode=block
+  
+  # Performance Headers
+  X-DNS-Prefetch-Control: on
+  
+# Static assets (images, js, css) - aggressive caching
+/static/*
+  Cache-Control: public, max-age=31536000, immutable
+  
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# API routes - no cache
+/api/*
+  Cache-Control: no-cache, no-store, must-revalidate
+  
+# Image proxy function - CORS headers
+/api/image-proxy
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, HEAD, OPTIONS
+  Access-Control-Allow-Headers: Content-Type, Accept
+  
+# PWA manifest and service worker
+/manifest.json
+  Cache-Control: public, max-age=86400
+  Content-Type: application/manifest+json
+  
+# Favicon and robots
+/favicon.ico
+  Cache-Control: public, max-age=86400
+  
+/robots.txt
+  Cache-Control: public, max-age=86400 

@@ -55,6 +55,21 @@ export function getCloudflareImageUrl(originalUrl: string): string {
 }
 
 /**
+ * 获取备用代理URL（如果直接访问失败）
+ */
+export function getProxyImageUrl(originalUrl: string): string {
+  if (needsProxy(originalUrl)) {
+    // 在Cloudflare Pages环境使用Functions代理
+    if (isCloudflarePages()) {
+      return `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`
+    }
+    // 开发环境使用API代理
+    return `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`
+  }
+  return originalUrl
+}
+
+/**
  * 增强的图片预加载 - 使用直接URL访问
  */
 export function preloadCloudflareImage(originalUrl: string): Promise<string> {

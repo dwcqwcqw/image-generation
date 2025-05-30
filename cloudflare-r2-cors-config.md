@@ -18,9 +18,29 @@
 3. 找到 **"CORS policy"** 部分
 4. 点击 **"Add CORS policy"** 或 **"Edit"**
 
-### 3. 添加CORS配置（修正版本）
+### 3. 针对你当前域名的CORS配置
 
-**使用这个修正的JSON配置：**
+**根据你的错误信息，使用这个特定配置：**
+
+```json
+[
+  {
+    "AllowedOrigins": [
+      "https://8e1bd87f.image-generation-dfn.pages.dev",
+      "https://*.image-generation-dfn.pages.dev",
+      "https://*.pages.dev",
+      "http://localhost:3000",
+      "http://localhost:3001"
+    ],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["Content-Length", "Content-Type", "ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+### 4. 如果上面还有问题，试试宽松配置（仅测试用）：
 
 ```json
 [
@@ -30,18 +50,6 @@
     "AllowedHeaders": ["*"],
     "ExposeHeaders": ["Content-Length", "Content-Type"],
     "MaxAgeSeconds": 3600
-  }
-]
-```
-
-### 4. 如果上面还有问题，试试最简配置：
-
-```json
-[
-  {
-    "AllowedOrigins": ["*"],
-    "AllowedMethods": ["GET"],
-    "AllowedHeaders": ["*"]
   }
 ]
 ```
