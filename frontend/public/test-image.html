@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Proxy Test</title>
+</head>
+<body>
+    <h1>Image Proxy Test Page</h1>
+    <p>This page tests direct image loading through the proxy.</p>
+    
+    <h2>Test 1: Direct R2 URL (should fail with CORS)</h2>
+    <img id="direct" width="200" height="200" style="border: 1px solid red;">
+    
+    <h2>Test 2: Proxy URL (should work)</h2>
+    <img id="proxy" width="200" height="200" style="border: 1px solid green;">
+    
+    <h2>Test 3: Simple fetch test</h2>
+    <button onclick="testFetch()">Test Fetch</button>
+    <pre id="result"></pre>
+    
+    <script>
+        // Replace with an actual R2 image URL from your generation
+        const testUrl = 'https://image-generation.c7c141ce43d175e60601edc46d904553.r2.cloudflarestorage.com/generated/test.png';
+        
+        // Test direct load
+        document.getElementById('direct').src = testUrl;
+        document.getElementById('direct').onerror = () => console.log('Direct load failed (expected)');
+        
+        // Test proxy load
+        document.getElementById('proxy').src = '/api/image-proxy?url=' + encodeURIComponent(testUrl);
+        document.getElementById('proxy').onerror = () => console.log('Proxy load failed!');
+        document.getElementById('proxy').onload = () => console.log('Proxy load success!');
+        
+        // Test fetch
+        async function testFetch() {
+            const result = document.getElementById('result');
+            try {
+                const response = await fetch('/api/image-proxy?url=' + encodeURIComponent(testUrl));
+                result.textContent = `Status: ${response.status}\nHeaders: ${JSON.stringify(Object.fromEntries(response.headers), null, 2)}`;
+            } catch (error) {
+                result.textContent = `Error: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html> 
