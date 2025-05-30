@@ -41,16 +41,21 @@ export function needsProxy(url: string): boolean {
  * Cloudflare Pages优化的图片URL获取
  */
 export function getCloudflareImageUrl(originalUrl: string): string {
-  console.log('[Image URL] Processing URL:', originalUrl)
+  console.log('[Image URL Debug] ======================')
+  console.log('[Image URL Debug] Processing URL:', originalUrl)
+  console.log('[Image URL Debug] Window hostname:', typeof window !== 'undefined' ? window.location.hostname : 'SSR')
+  console.log('[Image URL Debug] Is Cloudflare Pages:', isCloudflarePages())
+  console.log('[Image URL Debug] Needs proxy:', needsProxy(originalUrl))
   
   // 在Cloudflare Pages环境，优先使用代理（因为CORS仍有问题）
   if (needsProxy(originalUrl) && isCloudflarePages()) {
-    console.log('[Image URL] Cloudflare Pages detected, using proxy for R2 URL')
-    return `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`
+    const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`
+    console.log('[Image URL Debug] Using proxy URL:', proxyUrl)
+    return proxyUrl
   }
   
   // 开发环境或非R2 URL直接返回
-  console.log('[Image URL] Using direct access')
+  console.log('[Image URL Debug] Using direct access:', originalUrl)
   return originalUrl
 }
 

@@ -1,43 +1,146 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Image Proxy Test</title>
+    <title>Image Proxy Test - Debug Version</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .success { background-color: #d4edda; }
+        .error { background-color: #f8d7da; }
+        img { max-width: 300px; height: auto; margin: 10px; }
+        #result { background: #f8f9fa; padding: 10px; border: 1px solid #dee2e6; }
+    </style>
 </head>
 <body>
-    <h1>Image Proxy Test Page</h1>
-    <p>This page tests direct image loading through the proxy.</p>
+    <h1>🔧 Image Proxy Debug Test Page</h1>
+    <p>This page tests proxy functionality with detailed debugging.</p>
     
-    <h2>Test 1: Direct R2 URL (should fail with CORS)</h2>
-    <img id="direct" width="200" height="200" style="border: 1px solid red;">
+    <div class="test-section">
+        <h2>Environment Check</h2>
+        <p>Current hostname: <span id="hostname"></span></p>
+        <p>Is Pages.dev domain: <span id="is-pages"></span></p>
+        <p>Current URL: <span id="current-url"></span></p>
+    </div>
     
-    <h2>Test 2: Proxy URL (should work)</h2>
-    <img id="proxy" width="200" height="200" style="border: 1px solid green;">
+    <div class="test-section">
+        <h2>Test 1: Direct R2 URL (should fail with CORS)</h2>
+        <img id="direct" style="border: 2px solid red;">
+        <p>Status: <span id="direct-status">Loading...</span></p>
+    </div>
     
-    <h2>Test 3: Simple fetch test</h2>
-    <button onclick="testFetch()">Test Fetch</button>
-    <pre id="result"></pre>
+    <div class="test-section">
+        <h2>Test 2: Proxy URL (should work)</h2>
+        <img id="proxy" style="border: 2px solid green;">
+        <p>Status: <span id="proxy-status">Loading...</span></p>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 3: Fetch Test</h2>
+        <button onclick="testFetch()">Test Proxy Fetch</button>
+        <button onclick="testDirectFetch()">Test Direct Fetch</button>
+        <pre id="result">Click buttons to test...</pre>
+    </div>
     
     <script>
-        // Replace with an actual R2 image URL from your generation
-        const testUrl = 'https://image-generation.c7c141ce43d175e60601edc46d904553.r2.cloudflarestorage.com/generated/test.png';
+        // Use recent R2 URLs from the error screenshots
+        const testUrls = [
+            'https://image-generation.c7c141ce43d175e60601edc46d904553.r2.cloudflarestorage.com/generated/f2c6ed4b-ebe0-4fde-96b4-8e0c2d243046.png',
+            'https://image-generation.c7c141ce43d175e60601edc46d904553.r2.cloudflarestorage.com/generated/03555032-d011-4120-b295-7df37a8edce8.png'
+        ];
+        
+        const testUrl = testUrls[0]; // Use first URL
+        
+        // Environment info
+        document.getElementById('hostname').textContent = window.location.hostname;
+        document.getElementById('is-pages').textContent = window.location.hostname.includes('.pages.dev');
+        document.getElementById('current-url').textContent = window.location.href;
+        
+        console.log('=== STARTING IMAGE TESTS ===');
+        console.log('Test URL:', testUrl);
+        console.log('Hostname:', window.location.hostname);
         
         // Test direct load
-        document.getElementById('direct').src = testUrl;
-        document.getElementById('direct').onerror = () => console.log('Direct load failed (expected)');
+        const directImg = document.getElementById('direct');
+        directImg.src = testUrl;
+        directImg.onerror = () => {
+            console.log('❌ Direct load failed (expected)');
+            document.getElementById('direct-status').textContent = 'Failed (Expected - CORS)';
+            document.getElementById('direct-status').parentElement.parentElement.className += ' error';
+        };
+        directImg.onload = () => {
+            console.log('✅ Direct load success (unexpected)');
+            document.getElementById('direct-status').textContent = 'Success (Unexpected!)';
+            document.getElementById('direct-status').parentElement.parentElement.className += ' success';
+        };
         
         // Test proxy load
-        document.getElementById('proxy').src = '/api/image-proxy?url=' + encodeURIComponent(testUrl);
-        document.getElementById('proxy').onerror = () => console.log('Proxy load failed!');
-        document.getElementById('proxy').onload = () => console.log('Proxy load success!');
+        const proxyImg = document.getElementById('proxy');
+        const proxyUrl = '/api/image-proxy?url=' + encodeURIComponent(testUrl);
+        console.log('Proxy URL:', proxyUrl);
         
-        // Test fetch
+        proxyImg.src = proxyUrl;
+        proxyImg.onerror = () => {
+            console.log('❌ Proxy load failed!');
+            document.getElementById('proxy-status').textContent = 'Failed!';
+            document.getElementById('proxy-status').parentElement.parentElement.className += ' error';
+        };
+        proxyImg.onload = () => {
+            console.log('✅ Proxy load success!');
+            document.getElementById('proxy-status').textContent = 'Success!';
+            document.getElementById('proxy-status').parentElement.parentElement.className += ' success';
+        };
+        
+        // Test fetch functions
         async function testFetch() {
             const result = document.getElementById('result');
+            result.textContent = 'Testing proxy fetch...';
+            
             try {
-                const response = await fetch('/api/image-proxy?url=' + encodeURIComponent(testUrl));
-                result.textContent = `Status: ${response.status}\nHeaders: ${JSON.stringify(Object.fromEntries(response.headers), null, 2)}`;
+                console.log('Testing fetch to proxy URL:', proxyUrl);
+                const response = await fetch(proxyUrl);
+                
+                const responseText = `PROXY FETCH RESULT:
+Status: ${response.status} ${response.statusText}
+Headers: ${JSON.stringify(Object.fromEntries(response.headers), null, 2)}
+Content-Type: ${response.headers.get('content-type')}
+Size: ${response.headers.get('content-length')} bytes
+Proxy Debug Header: ${response.headers.get('X-Proxy-Debug')}
+Error Message: ${response.headers.get('X-Error-Message')}`;
+                
+                result.textContent = responseText;
+                console.log('Proxy fetch result:', response.status);
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    console.log('Received blob size:', blob.size);
+                }
+                
             } catch (error) {
-                result.textContent = `Error: ${error.message}`;
+                const errorText = `PROXY FETCH ERROR: ${error.message}`;
+                result.textContent = errorText;
+                console.log(errorText);
+            }
+        }
+        
+        async function testDirectFetch() {
+            const result = document.getElementById('result');
+            result.textContent = 'Testing direct fetch...';
+            
+            try {
+                console.log('Testing direct fetch to:', testUrl);
+                const response = await fetch(testUrl);
+                
+                const responseText = `DIRECT FETCH RESULT:
+Status: ${response.status} ${response.statusText}
+Headers: ${JSON.stringify(Object.fromEntries(response.headers), null, 2)}`;
+                
+                result.textContent = responseText;
+                console.log('Direct fetch result:', response.status);
+                
+            } catch (error) {
+                const errorText = `DIRECT FETCH ERROR (Expected): ${error.message}`;
+                result.textContent = errorText;
+                console.log(errorText);
             }
         }
     </script>
