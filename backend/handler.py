@@ -13,6 +13,7 @@ from botocore.config import Config
 import sys
 import traceback
 import re
+import time
 
 # 导入compel用于处理长提示词
 try:
@@ -75,103 +76,45 @@ CLOUDFLARE_R2_PUBLIC_DOMAIN = os.getenv("CLOUDFLARE_R2_PUBLIC_DOMAIN")  # 可选
 FLUX_BASE_PATH = "/runpod-volume/flux_base"
 FLUX_LORA_BASE_PATH = "/runpod-volume/lora"
 
-# 基础模型配置 - 支持不同模型类型
+# 配置基础模型类型和路径
 BASE_MODELS = {
     "realistic": {
         "name": "真人风格",
-        "model_type": "flux",  # FLUX模型类型
-        "base_path": "/runpod-volume/flux_base",
+        "path": "/runpod-volume/flux_base",
         "lora_path": "/runpod-volume/lora/flux_nsfw",
-        "lora_id": "flux_nsfw"
+        "lora_id": "flux_nsfw",
+        "model_type": "flux"
     },
     "anime": {
-        "name": "动漫风格",
-        "model_type": "diffusers",  # 标准diffusers模型类型
-        "base_path": "/runpod-volume/cartoon/waiNSFWIllustrious_v130.safetensors",
-        "lora_path": "/runpod-volume/cartoon/lora/Gayporn.safetensor", 
-        "lora_id": "gayporn"
+        "name": "动漫风格", 
+        "path": "/runpod-volume/cartoon/waiNSFWIllustrious_v130.safetensors",
+        "lora_path": "/runpod-volume/cartoon/lora/Gayporn.safetensor",
+        "lora_id": "gayporn",
+        "model_type": "diffusers"
     }
 }
+
+# 默认LoRA配置 - 根据基础模型（单选模式）
+DEFAULT_LORA_CONFIG = {
+    "flux_nsfw": 1.0  # 默认使用FLUX NSFW
+}
+
+# 全局变量存储模型
+txt2img_pipe = None
+img2img_pipe = None
+current_lora_config = DEFAULT_LORA_CONFIG.copy()
+current_base_model = None  # 初始化时不预加载任何模型
+device_mapping_enabled = False  # Track if device mapping is used
+current_selected_lora = "flux_nsfw"  # 当前选择的单个LoRA（用于真人风格）
+
+# 全局变量存储compel处理器
+compel_proc = None
+compel_proc_neg = None
 
 # 支持的LoRA模型列表 - 更新为支持不同基础模型
-AVAILABLE_LORAS = {
-    "flux_nsfw": {
-        "name": "FLUX NSFW",
-        "path": "/runpod-volume/lora/flux_nsfw",
-        "description": "NSFW真人内容生成模型",
-        "default_weight": 1.0,
-        "base_model": "realistic"
-    },
-    "gayporn": {
-        "name": "Gayporn",
-        "path": "/runpod-volume/cartoon/lora/Gayporn.safetensor",
-        "description": "NSFW动漫内容生成模型",
-        "default_weight": 1.0,
-        "base_model": "anime"
-    },
-    # 保留其他LoRA以备扩展使用
-    "UltraRealPhoto": {
-        "name": "Ultra Real Photo",
-        "path": "/runpod-volume/lora/UltraRealPhoto.safetensors",
-        "description": "Ultra realistic photo generation",
-        "default_weight": 1.0,
-        "base_model": "realistic"
-    },
-    "Chastity_Cage": {
-        "name": "Chastity Cage",
-        "path": "/runpod-volume/lora/Chastity_Cage.safetensors",
-        "description": "Chastity device focused generation",
-        "default_weight": 0.5,
-        "base_model": "realistic"
-    },
-    "DynamicPenis": {
-        "name": "Dynamic Penis",
-        "path": "/runpod-volume/lora/DynamicPenis.safetensors",
-        "description": "Dynamic male anatomy generation",
-        "default_weight": 0.5,
-        "base_model": "realistic"
-    },
-    "OnOff": {
-        "name": "On Off",
-        "path": "/runpod-volume/lora/OnOff.safetensors",
-        "description": "Clothing on/off variations",
-        "default_weight": 0.5,
-        "base_model": "realistic"
-    },
-    "Puppy_mask": {
-        "name": "Puppy Mask",
-        "path": "/runpod-volume/lora/Puppy_mask.safetensors",
-        "description": "Puppy mask and pet play content",
-        "default_weight": 0.5,
-        "base_model": "realistic"
-    },
-    "asianman": {
-        "name": "Asian Man",
-        "path": "/runpod-volume/lora/asianman.safetensors",
-        "description": "Asian male character generation",
-        "default_weight": 0.5,
-        "base_model": "realistic"
-    },
-    "butt-and-feet": {
-        "name": "Butt and Feet",
-        "path": "/runpod-volume/lora/butt-and-feet.safetensors",
-        "description": "Focus on lower body parts",
-        "default_weight": 0.5,
-        "base_model": "realistic"
-    },
-    "cumshots": {
-        "name": "Cumshots",
-        "path": "/runpod-volume/lora/cumshots.safetensors",
-        "description": "Adult climax content generation",
-        "default_weight": 0.5,
-        "base_model": "realistic"
-    }
-}
-
-# 默认LoRA配置 - 根据基础模型
-DEFAULT_LORA_CONFIG = {
-    "flux_nsfw": 1.0
-}
+AVAILABLE_LORAS = None
+LORAS_LAST_SCAN = 0
+LORAS_CACHE_DURATION = 300  # 5分钟缓存
 
 # 初始化 Cloudflare R2 客户端
 r2_client = None
@@ -192,17 +135,6 @@ if all([CLOUDFLARE_R2_ACCESS_KEY, CLOUDFLARE_R2_SECRET_KEY, CLOUDFLARE_R2_BUCKET
 else:
     print("✗ R2 configuration incomplete - R2 upload will be disabled")
 
-# 全局变量存储模型
-txt2img_pipe = None
-img2img_pipe = None
-current_lora_config = DEFAULT_LORA_CONFIG.copy()
-current_base_model = "realistic"  # 当前加载的基础模型
-device_mapping_enabled = False  # Track if device mapping is used
-
-# 全局变量存储compel处理器
-compel_proc = None
-compel_proc_neg = None
-
 def get_device():
     """获取设备，兼容不同PyTorch版本"""
     if torch.cuda.is_available():
@@ -211,15 +143,15 @@ def get_device():
         return "cpu"
 
 def load_models():
-    """加载 FLUX 模型 - 大幅性能优化版本"""
+    """按需加载模型，不预热"""
     global txt2img_pipe, img2img_pipe, current_base_model
     
-    print("🚀 Loading FLUX models with optimizations...")
-    start_time = datetime.now()
+    print("✓ 模型系统初始化完成，将按需加载模型")
+    print(f"📝 支持的模型类型: {list(BASE_MODELS.keys())}")
     
-    # 默认加载真人风格模型
-    base_model_type = "realistic"
-    load_specific_model(base_model_type)
+    # 不预热任何模型，等待用户请求时加载
+    current_base_model = None
+    print("🎯 系统就绪，等待模型加载请求...")
 
 def load_flux_model(base_path: str, device: str) -> tuple:
     """加载FLUX模型"""
@@ -292,57 +224,45 @@ def load_flux_model(base_path: str, device: str) -> tuple:
     return txt2img_pipe, img2img_pipe
 
 def load_diffusers_model(base_path: str, device: str) -> tuple:
-    """加载标准Diffusers模型（如Stable Diffusion）"""
-    # 内存优化配置
-    model_kwargs = {
-        "torch_dtype": torch.float16 if device == "cuda" else torch.float32,
-        "use_safetensors": True,
-        "low_cpu_mem_usage": True,
-    }
+    """加载标准diffusers模型 - 修复Half精度问题"""
+    print(f"🎨 Loading diffusers model from {base_path}")
     
-    # 加载标准Stable Diffusion模型
-    txt2img_pipe = StableDiffusionPipeline.from_single_file(
-        base_path,
-        **model_kwargs
-    )
+    # 强制使用float32精度以避免Half精度问题
+    torch_dtype = torch.float32  # 修复 LayerNormKernelImpl 错误
     
-    # 移动到设备
-    if device == "cuda":
-        txt2img_pipe = txt2img_pipe.to(device)
-    
-    # 启用优化
     try:
-        txt2img_pipe.enable_attention_slicing()
-        print("✅ Attention slicing enabled")
-    except Exception as e:
-        print(f"⚠️  Attention slicing not available: {e}")
+        # 加载主要文本到图像管道
+        txt2img_pipeline = StableDiffusionPipeline.from_single_file(
+            base_path,
+            torch_dtype=torch_dtype,
+            use_safetensors=True,
+            variant="fp32"  # 强制使用fp32变体
+        ).to(device)
         
-    try:
-        txt2img_pipe.enable_model_cpu_offload()
-        print("✅ CPU offload enabled")
+        # 优化内存使用
+        txt2img_pipeline.enable_attention_slicing()
+        txt2img_pipeline.enable_model_cpu_offload()
+        
+        # 创建图像到图像管道（共享组件）
+        img2img_pipeline = StableDiffusionImg2ImgPipeline(
+            vae=txt2img_pipeline.vae,
+            text_encoder=txt2img_pipeline.text_encoder,
+            tokenizer=txt2img_pipeline.tokenizer,
+            unet=txt2img_pipeline.unet,
+            scheduler=txt2img_pipeline.scheduler,
+            safety_checker=txt2img_pipeline.safety_checker,
+            feature_extractor=txt2img_pipeline.feature_extractor,
+        ).to(device)
+        
+        # 同样的优化
+        img2img_pipeline.enable_attention_slicing()
+        img2img_pipeline.enable_model_cpu_offload()
+        
+        return txt2img_pipeline, img2img_pipeline
+        
     except Exception as e:
-        print(f"⚠️  CPU offload not available: {e}")
-    
-    try:
-        txt2img_pipe.enable_vae_slicing()
-        txt2img_pipe.enable_vae_tiling()
-        print("✅ VAE optimizations enabled")
-    except Exception as e:
-        print(f"⚠️  VAE optimizations not available: {e}")
-    
-    # 创建图生图管道
-    print("🔗 Creating standard image-to-image pipeline (sharing components)...")
-    img2img_pipe = StableDiffusionImg2ImgPipeline(
-        vae=txt2img_pipe.vae,
-        text_encoder=txt2img_pipe.text_encoder,
-        tokenizer=txt2img_pipe.tokenizer,
-        unet=txt2img_pipe.unet,
-        scheduler=txt2img_pipe.scheduler,
-        safety_checker=txt2img_pipe.safety_checker,
-        feature_extractor=txt2img_pipe.feature_extractor,
-    )
-    
-    return txt2img_pipe, img2img_pipe
+        print(f"❌ Error loading diffusers model: {str(e)}")
+        raise e
 
 def load_specific_model(base_model_type: str):
     """加载指定的基础模型 - 支持多种模型类型"""
@@ -352,7 +272,7 @@ def load_specific_model(base_model_type: str):
         raise ValueError(f"Unknown base model type: {base_model_type}")
     
     model_config = BASE_MODELS[base_model_type]
-    base_path = model_config["base_path"]
+    base_path = model_config["path"]
     model_type = model_config["model_type"]
     
     print(f"🎨 Loading {model_config['name']} model ({model_type}) from {base_path}")
@@ -412,16 +332,20 @@ def load_specific_model(base_model_type: str):
                 print(f"✅ LoRA loaded in {lora_time:.2f}s")
                 
                 # 更新当前LoRA配置
-                global current_lora_config
-                current_lora_config = {model_config["lora_id"]: 1.0}
+                global current_lora_config, current_selected_lora
+                lora_id = model_config["lora_id"]
+                current_lora_config = {lora_id: 1.0}
+                current_selected_lora = lora_id
                 
             except Exception as e:
                 print(f"⚠️  LoRA loading failed: {e}")
                 print("Continuing without LoRA...")
                 current_lora_config = {}
+                current_selected_lora = "flux_nsfw" if base_model_type == "realistic" else "gayporn"
         else:
             print(f"⚠️  LoRA weights not found at {default_lora_path}")
             current_lora_config = {}
+            current_selected_lora = "flux_nsfw" if base_model_type == "realistic" else "gayporn"
         
         # 更新当前基础模型
         current_base_model = base_model_type
@@ -768,28 +692,66 @@ def generate_flux_images(prompt: str, negative_prompt: str, width: int, height: 
     return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text-to-image")
 
 def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, height: int, steps: int, cfg_scale: float, seed: int, num_images: int, base_model: str) -> list:
-    """标准Diffusers模型图像生成"""
+    """使用标准diffusers管道生成图像 - 支持长Prompt处理"""
     global txt2img_pipe
     
-    # 标准Diffusers模型使用简单的prompt处理
+    if txt2img_pipe is None:
+        raise RuntimeError("Diffusers pipeline not loaded")
+    
+    # 动漫模型也支持长Prompt处理
+    print(f"📝 Processing long prompts for anime model...")
+    
+    # 处理长Prompt - 使用Compel库来支持更长的tokens
+    try:
+        # 使用Compel处理长prompt
+        global compel_proc, compel_proc_neg
+        
+        if compel_proc is None:
+            from compel import Compel
+            compel_proc = Compel(
+                tokenizer=txt2img_pipe.tokenizer,
+                text_encoder=txt2img_pipe.text_encoder,
+                truncate_long_prompts=False  # 不截断长prompt
+            )
+            compel_proc_neg = compel_proc  # 使用同一个处理器
+        
+        # 处理正面prompt
+        print(f"🔤 原始prompt长度: {len(prompt)} 字符")
+        prompt_embeds = compel_proc(prompt)
+        
+        # 处理负面prompt
+        if negative_prompt:
+            print(f"🔤 原始negative prompt长度: {len(negative_prompt)} 字符") 
+            negative_prompt_embeds = compel_proc_neg(negative_prompt)
+        else:
+            negative_prompt_embeds = compel_proc_neg("")
+            
+        print("✅ 长prompt处理完成")
+        
+    except Exception as e:
+        print(f"⚠️  Compel处理失败，回退到标准处理: {e}")
+        # 回退到标准处理
+        prompt_embeds = None
+        negative_prompt_embeds = None
+    
     generation_kwargs = {
-        "prompt": prompt,
-        "negative_prompt": negative_prompt,
         "width": width,
         "height": height,
         "num_inference_steps": steps,
         "guidance_scale": cfg_scale,
-        "generator": None,  # 稍后设置
+        "num_images_per_prompt": num_images,
+        "generator": torch.manual_seed(seed) if seed != -1 else None,
     }
-
-    # 设置随机种子
-    if seed == -1:
-        seed = torch.randint(0, 2**32 - 1, (1,)).item()
     
-    generator = torch.Generator(device=txt2img_pipe.device).manual_seed(seed)
-    generation_kwargs["generator"] = generator
-
-    return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text-to-image")
+    # 使用prompt embeds如果可用，否则使用原始prompt
+    if prompt_embeds is not None:
+        generation_kwargs["prompt_embeds"] = prompt_embeds
+        generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds
+    else:
+        generation_kwargs["prompt"] = prompt
+        generation_kwargs["negative_prompt"] = negative_prompt
+    
+    return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text_to_image")
 
 def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt: str, width: int, height: int, steps: int, cfg_scale: float, seed: int, num_images: int, base_model: str, task_type: str) -> list:
     """通用图像生成逻辑"""
@@ -900,42 +862,35 @@ def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt
     
     return results
 
-def text_to_image(params: dict) -> list:
-    """文生图生成 - 支持多种模型类型"""
-    global txt2img_pipe, current_base_model
+def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, height: int = 1024, steps: int = 4, cfg_scale: float = 0.0, seed: int = -1, num_images: int = 1, base_model: str = "realistic") -> list:
+    """文本生成图像 - 支持多种模型类型"""
+    global current_base_model, txt2img_pipe
     
+    print(f"🎯 请求模型: {base_model}, 当前加载模型: {current_base_model}")
+    
+    # 检查是否需要切换模型
+    if current_base_model != base_model:
+        print(f"🔄 需要切换模型: {current_base_model} -> {base_model}")
+        try:
+            load_specific_model(base_model)
+        except Exception as e:
+            print(f"❌ 模型切换失败: {e}")
+            raise e
+    
+    # 确保模型已加载
     if txt2img_pipe is None:
-        raise ValueError("Text-to-image model not loaded")
+        print(f"⚠️  模型未加载，加载 {base_model} 模型...")
+        load_specific_model(base_model)
     
-    # 提取参数
-    prompt = params.get('prompt', '')
-    negative_prompt = params.get('negativePrompt', '')
-    width = params.get('width', 512)
-    height = params.get('height', 512)
-    steps = params.get('steps', 20)
-    cfg_scale = params.get('cfgScale', 7.0)
-    seed = params.get('seed', -1)
-    num_images = params.get('numImages', 1)
-    base_model = params.get('baseModel', 'realistic')
-    lora_config = params.get('lora_config', {})
+    # 获取模型配置
+    model_config = BASE_MODELS.get(base_model)
+    if not model_config:
+        raise ValueError(f"Unknown base model: {base_model}")
     
-    # 检查是否需要切换基础模型
-    if base_model != current_base_model:
-        print(f"Switching base model for generation: {current_base_model} -> {base_model}")
-        switch_base_model(base_model)
-    
-    # 检查是否需要更新LoRA配置
-    if lora_config and lora_config != current_lora_config:
-        print(f"Updating LoRA config for generation: {lora_config}")
-        load_multiple_loras(lora_config)
-    
-    # 获取当前模型类型
-    model_config = BASE_MODELS[current_base_model]
     model_type = model_config["model_type"]
+    print(f"🎨 使用 {model_type} 管道生成图像...")
     
-    print(f"🎨 Generating with {model_config['name']} ({model_type})")
-    
-    # 根据模型类型选择生成策略
+    # 根据模型类型调用相应的生成函数
     if model_type == "flux":
         return generate_flux_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model)
     elif model_type == "diffusers":
@@ -1247,116 +1202,209 @@ def image_to_image(params: dict) -> list:
     return results
 
 def get_available_loras() -> dict:
-    """获取可用的LoRA模型列表"""
-    available = {}
-    for lora_id, lora_info in AVAILABLE_LORAS.items():
-        if os.path.exists(lora_info["path"]):
-            available[lora_id] = {
-                "name": lora_info["name"],
-                "description": lora_info["description"],
-                "default_weight": lora_info["default_weight"],
-                "current_weight": current_lora_config.get(lora_id, 0.0)
-            }
-    return available
+    """获取可用的LoRA模型列表 - 简化版本（前端静态显示）"""
+    # 前端已经有静态列表，这里只返回基本信息
+    return {
+        "message": "前端使用静态LoRA列表，后端动态搜索文件",
+        "search_paths": LORA_SEARCH_PATHS,
+        "current_selected": current_selected_lora,
+        "current_base_model": current_base_model
+    }
 
-def load_multiple_loras(lora_config: dict) -> bool:
-    """加载多个LoRA模型，每个都有自己的权重"""
-    global txt2img_pipe, current_lora_config
-    
-    if not lora_config:
-        print("No LoRA configuration provided")
-        return False
-    
-    try:
-        print(f"Loading multiple LoRAs with config: {lora_config}")
-        
-        # 先卸载所有现有的LoRA
-        txt2img_pipe.unload_lora_weights()
-        
-        # 准备LoRA权重和适配器名称
-        adapter_names = []
-        adapter_weights = []
-        
-        for lora_id, weight in lora_config.items():
-            if weight > 0 and lora_id in AVAILABLE_LORAS:
-                lora_path = AVAILABLE_LORAS[lora_id]["path"]
-                if os.path.exists(lora_path):
-                    # 加载LoRA适配器
-                    adapter_name = f"lora_{lora_id}"
-                    txt2img_pipe.load_lora_weights(lora_path, adapter_name=adapter_name)
-                    adapter_names.append(adapter_name)
-                    adapter_weights.append(weight)
-                    print(f"✅ Loaded LoRA {AVAILABLE_LORAS[lora_id]['name']} with weight {weight}")
-                else:
-                    print(f"⚠️ LoRA path not found: {lora_path}")
-        
-        if adapter_names:
-            # 设置混合权重
-            txt2img_pipe.set_adapters(adapter_names, adapter_weights)
-            current_lora_config = lora_config.copy()
-            print(f"✅ Successfully loaded {len(adapter_names)} LoRA adapters")
-            return True
-        else:
-            print("❌ No valid LoRA adapters could be loaded")
-            return False
-            
-    except Exception as e:
-        print(f"❌ Error loading multiple LoRAs: {str(e)}")
-        # 尝试恢复到默认配置
-        try:
-            txt2img_pipe.unload_lora_weights()
-            default_lora_path = AVAILABLE_LORAS["flux_nsfw"]["path"]
-            txt2img_pipe.load_lora_weights(default_lora_path)
-            current_lora_config = {"flux_nsfw": 1.0}
-            print("Recovered to default LoRA configuration")
-        except Exception as recovery_error:
-            print(f"Failed to recover to default LoRA: {recovery_error}")
-        return False
+def get_loras_by_base_model() -> dict:
+    """获取按基础模型分组的LoRA列表 - 简化版本"""
+    return {
+        "realistic": [
+            {"id": "flux_nsfw", "name": "FLUX NSFW", "description": "NSFW真人内容生成模型"},
+            {"id": "chastity_cage", "name": "Chastity Cage", "description": "贞操笼主题内容生成"},
+            {"id": "dynamic_penis", "name": "Dynamic Penis", "description": "动态男性解剖生成"},
+            {"id": "masturbation", "name": "Masturbation", "description": "自慰主题内容生成"},
+            {"id": "puppy_mask", "name": "Puppy Mask", "description": "小狗面具主题内容"},
+            {"id": "butt_and_feet", "name": "Butt and Feet", "description": "臀部和足部主题内容"},
+            {"id": "cumshots", "name": "Cumshots", "description": "射精主题内容生成"},
+            {"id": "uncutpenis", "name": "Uncut Penis", "description": "未割包皮主题内容"},
+            {"id": "doggystyle", "name": "Doggystyle", "description": "后入式主题内容"},
+            {"id": "fisting", "name": "Fisting", "description": "拳交主题内容生成"},
+            {"id": "on_off", "name": "On Off", "description": "穿衣/脱衣对比内容"},
+            {"id": "blowjob", "name": "Blowjob", "description": "口交主题内容生成"},
+            {"id": "cum_on_face", "name": "Cum on Face", "description": "颜射主题内容生成"}
+        ],
+        "anime": [
+            {"id": "gayporn", "name": "Gayporn", "description": "男同动漫风格内容生成"}
+        ],
+        "current_selected": {
+            "realistic": current_selected_lora if current_base_model == "realistic" else "flux_nsfw",
+            "anime": "gayporn" if current_base_model == "anime" else "gayporn"
+        }
+    }
 
-def switch_lora(lora_id: str) -> bool:
-    """切换LoRA模型 - 优化版本"""
-    global txt2img_pipe, img2img_pipe, current_lora_config
+def switch_single_lora(lora_id: str) -> bool:
+    """切换单个LoRA模型（使用动态搜索）"""
+    global txt2img_pipe, img2img_pipe, current_lora_config, current_selected_lora
     
-    if lora_id not in AVAILABLE_LORAS:
-        raise ValueError(f"Unknown LoRA model: {lora_id}")
+    if txt2img_pipe is None:
+        raise ValueError("No pipeline loaded, cannot switch LoRA")
     
-    lora_info = AVAILABLE_LORAS[lora_id]
-    lora_path = lora_info["path"]
+    # 动态搜索LoRA文件
+    lora_path = find_lora_file(lora_id, current_base_model)
     
-    if not os.path.exists(lora_path):
-        raise ValueError(f"LoRA model not found: {lora_info['name']} at {lora_path}")
+    if not lora_path:
+        raise ValueError(f"LoRA文件未找到: {lora_id}")
     
-    # 优化：如果已经是当前LoRA，直接返回，避免不必要的重新加载
-    if lora_id == current_lora_config["flux_nsfw"]:
-        print(f"LoRA {lora_info['name']} is already loaded - skipping switch")
+    # 如果已经是当前LoRA，直接返回
+    if lora_id == current_selected_lora:
+        print(f"LoRA {lora_id} 已经加载 - 跳过切换")
         return True
     
     try:
-        print(f"Switching LoRA from {AVAILABLE_LORAS[current_lora_config['flux_nsfw']]['name']} to {lora_info['name']}")
+        print(f"🔄 切换LoRA到: {lora_id}")
+        print(f"📁 文件路径: {lora_path}")
         
         # 卸载当前LoRA
-        txt2img_pipe.unload_lora_weights()
+        if hasattr(txt2img_pipe, 'unload_lora_weights'):
+            txt2img_pipe.unload_lora_weights()
+            print("🧹 已卸载之前的LoRA")
         
         # 加载新的LoRA
         txt2img_pipe.load_lora_weights(lora_path)
+        print("✅ 新LoRA加载成功")
         
-        # 更新当前LoRA
-        current_lora_config["flux_nsfw"] = lora_id
+        # 同步到img2img管道（如果存在）
+        if img2img_pipe and hasattr(img2img_pipe, 'load_lora_weights'):
+            try:
+                if hasattr(img2img_pipe, 'unload_lora_weights'):
+                    img2img_pipe.unload_lora_weights()
+                img2img_pipe.load_lora_weights(lora_path)
+                print("✅ img2img管道LoRA同步成功")
+            except Exception as e:
+                print(f"⚠️  img2img管道LoRA同步失败: {e}")
         
-        print(f"Successfully switched to LoRA: {lora_info['name']}")
+        # 更新当前LoRA配置
+        current_lora_config = {lora_id: 1.0}
+        current_selected_lora = lora_id
+        
+        print(f"🎉 成功切换到LoRA: {lora_id}")
         return True
         
     except Exception as e:
-        print(f"Failed to switch LoRA: {str(e)}")
+        print(f"❌ LoRA切换失败: {str(e)}")
         # 尝试恢复到之前的LoRA
+        if current_selected_lora and current_selected_lora != lora_id:
+            try:
+                previous_lora_path = find_lora_file(current_selected_lora, current_base_model)
+                if previous_lora_path:
+                    if hasattr(txt2img_pipe, 'unload_lora_weights'):
+                        txt2img_pipe.unload_lora_weights()
+                    txt2img_pipe.load_lora_weights(previous_lora_path)
+                    print(f"🔄 已恢复到之前的LoRA: {current_selected_lora}")
+            except Exception as recovery_error:
+                print(f"❌ LoRA恢复失败: {recovery_error}")
+        raise RuntimeError(f"LoRA切换失败: {str(e)}")
+
+def load_multiple_loras(lora_config: dict) -> bool:
+    """加载多个LoRA模型到管道中 - 使用动态搜索"""
+    global txt2img_pipe, img2img_pipe, current_base_model, current_lora_config
+    
+    if txt2img_pipe is None:
+        print("❌ No pipeline loaded, cannot load LoRAs")
+        return False
+    
+    if not lora_config:
+        print("ℹ️  No LoRA configuration provided")
+        return True
+    
+    # 获取当前模型类型
+    current_model_type = BASE_MODELS.get(current_base_model, {}).get("model_type", "unknown")
+    print(f"🎯 当前模型类型: {current_model_type}")
+    
+    try:
+        # 先清理现有的LoRA
+        print("🧹 Clearing existing LoRA weights...")
         try:
-            previous_lora_path = AVAILABLE_LORAS[current_lora_config["flux_nsfw"]]["path"]
             txt2img_pipe.unload_lora_weights()
-            txt2img_pipe.load_lora_weights(previous_lora_path)
-            print(f"Recovered to previous LoRA: {AVAILABLE_LORAS[current_lora_config['flux_nsfw']]['name']}")
-        except Exception as recovery_error:
-            print(f"Failed to recover LoRA: {recovery_error}")
-        raise RuntimeError(f"Failed to switch LoRA model: {str(e)}")
+            if img2img_pipe:
+                img2img_pipe.unload_lora_weights()
+        except Exception as e:
+            print(f"⚠️  Could not unload previous LoRAs: {e}")
+        
+        # 动态搜索并过滤兼容的LoRA
+        compatible_loras = {}
+        for lora_id, weight in lora_config.items():
+            if weight <= 0:
+                continue
+            
+            # 动态搜索LoRA文件
+            lora_path = find_lora_file(lora_id, current_base_model)
+            if not lora_path:
+                print(f"⚠️  LoRA文件未找到: {lora_id}")
+                continue
+                
+            compatible_loras[lora_id] = {
+                "path": lora_path,
+                "weight": weight
+            }
+        
+        if not compatible_loras:
+            print("ℹ️  没有找到兼容的LoRA模型")
+            return True
+        
+        print(f"🎨 Loading {len(compatible_loras)} compatible LoRA(s): {list(compatible_loras.keys())}")
+        
+        # 加载兼容的LoRA
+        lora_paths = []
+        lora_weights = []
+        
+        for lora_id, lora_data in compatible_loras.items():
+            lora_paths.append(lora_data["path"])
+            lora_weights.append(lora_data["weight"])
+            print(f"  📦 {lora_id}: {lora_data['path']} (weight: {lora_data['weight']})")
+        
+        # 根据模型类型使用不同的加载方法
+        if current_model_type == "flux":
+            # FLUX模型使用load_lora_weights
+            txt2img_pipe.load_lora_weights(
+                lora_paths[0] if len(lora_paths) == 1 else lora_paths,
+                weight_name=None,
+                adapter_name=list(compatible_loras.keys())[0] if len(compatible_loras) == 1 else list(compatible_loras.keys())
+            )
+            
+            # 设置权重
+            if len(compatible_loras) > 1:
+                adapter_weights = {name: weight for name, weight in zip(compatible_loras.keys(), lora_weights)}
+                txt2img_pipe.set_adapters(list(compatible_loras.keys()), adapter_weights=list(adapter_weights.values()))
+            else:
+                # 单个LoRA
+                adapter_name = list(compatible_loras.keys())[0]
+                txt2img_pipe.set_adapters([adapter_name], adapter_weights=[lora_weights[0]])
+                
+        elif current_model_type == "diffusers":
+            # 标准diffusers模型使用load_lora_weights
+            if len(compatible_loras) == 1:
+                # 单个LoRA
+                lora_path = lora_paths[0]
+                weight = lora_weights[0] 
+                txt2img_pipe.load_lora_weights(lora_path)
+                txt2img_pipe.cross_attention_kwargs = {"scale": weight}
+                
+                # 同步到img2img管道
+                if img2img_pipe:
+                    img2img_pipe.load_lora_weights(lora_path)
+                    img2img_pipe.cross_attention_kwargs = {"scale": weight}
+            else:
+                print("⚠️  多个LoRA加载暂不支持标准diffusers模型")
+                return False
+        
+        # 更新当前配置
+        current_lora_config.update(lora_config)
+        print(f"✅ Successfully loaded {len(compatible_loras)} LoRA(s)")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error loading multiple LoRAs: {e}")
+        # 打印更详细的错误信息
+        import traceback
+        print(f"详细错误: {traceback.format_exc()}")
+        return False
 
 def switch_base_model(base_model_type: str) -> bool:
     """切换基础模型"""
@@ -1406,7 +1454,7 @@ def handler(job):
         task_type = job_input.get('task_type')
         
         if task_type == 'get-loras':
-            # 获取可用LoRA列表
+            # 获取可用LoRA列表（保持兼容性）
             available_loras = get_available_loras()
             return {
                 'success': True,
@@ -1415,6 +1463,40 @@ def handler(job):
                     'current_config': current_lora_config
                 }
             }
+            
+        elif task_type == 'get-loras-by-model':
+            # 获取按基础模型分组的LoRA列表（新的单选UI）
+            loras_by_model = get_loras_by_base_model()
+            return {
+                'success': True,
+                'data': loras_by_model
+            }
+            
+        elif task_type == 'switch-single-lora':
+            # 切换单个LoRA模型（新的单选模式）
+            lora_id = job_input.get('lora_id')
+            if not lora_id:
+                return {
+                    'success': False,
+                    'error': 'lora_id is required'
+                }
+            
+            success = switch_single_lora(lora_id)
+            
+            if success:
+                return {
+                    'success': True,
+                    'data': {
+                        'current_selected_lora': current_selected_lora,
+                        'current_config': current_lora_config,
+                        'message': f'Switched to {AVAILABLE_LORAS[lora_id]["name"]}'
+                    }
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': f'Failed to switch to {lora_id}'
+                }
             
         elif task_type == 'switch-lora':
             # 切换LoRA模型（单个LoRA兼容性支持）
@@ -1469,19 +1551,41 @@ def handler(job):
                 }
         
         elif task_type == 'text-to-image':
-            # 优化：支持多LoRA配置
-            params = job_input.get('params', {})
-            requested_lora_config = params.get('lora_config', current_lora_config)
+            # 文本转图像生成
+            print("📝 Processing text-to-image request...")
+            
+            # 提取参数
+            prompt = job_input.get('prompt', '')
+            negative_prompt = job_input.get('negativePrompt', '') 
+            width = job_input.get('width', 1024)
+            height = job_input.get('height', 1024)
+            steps = job_input.get('steps', 4)
+            cfg_scale = job_input.get('cfgScale', 0.0)
+            seed = job_input.get('seed', -1)
+            num_images = job_input.get('numImages', 1)
+            base_model = job_input.get('baseModel', 'realistic')
+            lora_config = job_input.get('lora_config', {})
             
             # 检查是否需要更新LoRA配置
-            if requested_lora_config != current_lora_config:
-                print(f"Auto-loading LoRA config for generation: {requested_lora_config}")
-                load_multiple_loras(requested_lora_config)
+            if lora_config and lora_config != current_lora_config:
+                print(f"🎨 更新LoRA配置: {lora_config}")
+                load_multiple_loras(lora_config)
             
-            results = text_to_image(params)
+            # 生成图像
+            images = text_to_image(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                width=width,
+                height=height,
+                steps=steps,
+                cfg_scale=cfg_scale,
+                seed=seed,
+                num_images=num_images,
+                base_model=base_model
+            )
             return {
                 'success': True,
-                'data': results
+                'data': images
             }
             
         elif task_type == 'image-to-image':
@@ -1540,3 +1644,81 @@ def handler(job):
 
 # Note: The serverless worker will be started by start_debug.py
 # This allows for better debugging and health checks before startup 
+# This allows for better debugging and health checks before startup 
+
+# 简化的LoRA配置 - 前端静态显示，后端动态搜索文件
+LORA_SEARCH_PATHS = {
+    "realistic": [
+        "/runpod-volume/lora",
+        "/runpod-volume/lora/realistic"
+    ],
+    "anime": [
+        "/runpod-volume/cartoon/lora",
+        "/runpod-volume/anime/lora"
+    ]
+}
+
+# LoRA名称到可能文件名的映射
+LORA_FILE_PATTERNS = {
+    # 真人风格LoRA
+    "flux_nsfw": ["flux_nsfw", "flux_nsfw.safetensors"],
+    "chastity_cage": ["Chastity_Cage.safetensors", "chastity_cage.safetensors", "ChastityCase.safetensors"],
+    "dynamic_penis": ["DynamicPenis.safetensors", "dynamic_penis.safetensors"],
+    "masturbation": ["Masturbation.safetensors", "masturbation.safetensors"],
+    "puppy_mask": ["Puppy_mask.safetensors", "puppy_mask.safetensors", "PuppyMask.safetensors"],
+    "butt_and_feet": ["butt-and-feet.safetensors", "butt_and_feet.safetensors", "ButtAndFeet.safetensors"],
+    "cumshots": ["cumshots.safetensors", "Cumshots.safetensors"],
+    "uncutpenis": ["uncutpenis.safetensors", "UncutPenis.safetensors", "uncut_penis.safetensors"],
+    "doggystyle": ["Doggystyle.safetensors", "doggystyle.safetensors", "doggy_style.safetensors"],
+    "fisting": ["Fisting.safetensors", "fisting.safetensors"],
+    "on_off": ["OnOff.safetensors", "on_off.safetensors", "onoff.safetensors"],
+    "blowjob": ["blowjob.safetensors", "Blowjob.safetensors", "blow_job.safetensors"],
+    "cum_on_face": ["cumonface.safetensors", "cum_on_face.safetensors", "CumOnFace.safetensors"],
+    
+    # 动漫风格LoRA
+    "gayporn": ["Gayporn.safetensor", "gayporn.safetensors", "GayPorn.safetensors"]
+}
+
+def find_lora_file(lora_id: str, base_model: str) -> str:
+    """动态搜索LoRA文件路径"""
+    search_paths = LORA_SEARCH_PATHS.get(base_model, [])
+    file_patterns = LORA_FILE_PATTERNS.get(lora_id, [lora_id])
+    
+    print(f"🔍 搜索LoRA文件: {lora_id} (模型: {base_model})")
+    
+    for base_path in search_paths:
+        if not os.path.exists(base_path):
+            print(f"  ❌ 路径不存在: {base_path}")
+            continue
+            
+        print(f"  📁 搜索目录: {base_path}")
+        
+        # 尝试精确匹配
+        for pattern in file_patterns:
+            full_path = os.path.join(base_path, pattern)
+            if os.path.exists(full_path):
+                print(f"  ✅ 找到文件: {full_path}")
+                return full_path
+        
+        # 尝试模糊匹配（文件名包含lora_id）
+        try:
+            for filename in os.listdir(base_path):
+                if filename.endswith(('.safetensors', '.ckpt', '.pt')):
+                    # 检查文件名是否包含lora_id的关键词
+                    name_lower = filename.lower()
+                    lora_lower = lora_id.lower().replace('_', '').replace('-', '')
+                    
+                    if lora_lower in name_lower.replace('_', '').replace('-', ''):
+                        full_path = os.path.join(base_path, filename)
+                        print(f"  ✅ 模糊匹配找到: {full_path}")
+                        return full_path
+        except Exception as e:
+            print(f"  ❌ 搜索错误: {e}")
+    
+    print(f"  ❌ 未找到LoRA文件: {lora_id}")
+    return None
+
+# 移除复杂的动态扫描，使用简单的静态配置
+# AVAILABLE_LORAS = None
+# LORAS_LAST_SCAN = 0
+# LORAS_CACHE_DURATION = 300  # 5分钟缓存
