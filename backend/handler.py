@@ -544,18 +544,14 @@ def text_to_image(params: dict) -> list:
         prompt_embeds_obj = txt2img_pipe.encode_prompt(
             prompt=prompt,
             device=device,
-            num_images_per_prompt=1, # Encode for a single image initially
-            do_classifier_free_guidance=cfg_scale > 1.0, # Still relevant for how embeds might be used/conditioned
+            num_images_per_prompt=1 # Encode for a single image initially
         )
 
         # Encode negative prompt
-        # Note: Some encode_prompt versions might not need do_classifier_free_guidance for negative prompts
-        # or expect it to be False. For safety, keeping it consistent or specific to positive.
         negative_prompt_embeds_obj = txt2img_pipe.encode_prompt(
-            prompt=negative_prompt if negative_prompt else "", # Pass empty string if no negative prompt
+            prompt=negative_prompt if negative_prompt else "", 
             device=device,
-            num_images_per_prompt=1,
-            do_classifier_free_guidance=cfg_scale > 1.0, # Or False, depending on pipeline requirements
+            num_images_per_prompt=1
         )
 
         # Unpack positive embeddings
@@ -775,16 +771,14 @@ def image_to_image(params: dict) -> list:
         prompt_embeds_obj = img2img_pipe.encode_prompt(
             prompt=prompt,
             device=device,
-            num_images_per_prompt=1,
-            do_classifier_free_guidance=cfg_scale > 1.0,
+            num_images_per_prompt=1
         )
 
         # Encode negative prompt
         negative_prompt_embeds_obj = img2img_pipe.encode_prompt(
             prompt=negative_prompt if negative_prompt else "",
             device=device,
-            num_images_per_prompt=1,
-            do_classifier_free_guidance=cfg_scale > 1.0, # Or False
+            num_images_per_prompt=1
         )
 
         # Unpack positive embeddings
