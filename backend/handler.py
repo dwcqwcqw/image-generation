@@ -539,23 +539,40 @@ def text_to_image(params: dict) -> list:
     print("🧬 Generating prompt embeddings using pipeline.encode_prompt()...")
     try:
         device = get_device()
+        
+        # Clear GPU cache before encoding
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print(f"💾 GPU Memory before encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
-        # Encode positive prompt
+        # Encode positive prompt with memory management
+        print("🔤 Encoding positive prompt...")
         prompt_embeds_obj = txt2img_pipe.encode_prompt(
             prompt=prompt,
-            prompt_2=prompt,
+            prompt_2=prompt, # Added for FLUX dual encoder
             device=device,
             num_images_per_prompt=1 
         )
+        
+        # Clear cache after positive encoding
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print(f"💾 GPU Memory after positive encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
-        # Encode negative prompt
+        # Encode negative prompt with memory management
+        print("🔤 Encoding negative prompt...")
         current_negative_prompt = negative_prompt if negative_prompt else ""
         negative_prompt_embeds_obj = txt2img_pipe.encode_prompt(
             prompt=current_negative_prompt, 
-            prompt_2=current_negative_prompt,
+            prompt_2=current_negative_prompt, # Added for FLUX dual encoder
             device=device,
             num_images_per_prompt=1
         )
+        
+        # Clear cache after negative encoding
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print(f"💾 GPU Memory after negative encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
         # Unpack positive embeddings
         if hasattr(prompt_embeds_obj, 'prompt_embeds'):
@@ -591,9 +608,26 @@ def text_to_image(params: dict) -> list:
 
         print("✅ Embeddings successfully generated and assigned.")
 
+    except torch.cuda.OutOfMemoryError as oom_error:
+        print(f"❌ CUDA Out of Memory during encode_prompt: {oom_error}")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print("🧹 Cleared GPU cache after OOM error")
+        
+        # For OOM errors, we should not fall back to raw prompts as that will cause the original error
+        # Instead, we should fail gracefully or try with reduced precision/smaller batches
+        raise RuntimeError(f"GPU memory insufficient for prompt encoding. Please try with shorter prompts or switch to a GPU with more memory. Original error: {oom_error}")
+        
     except Exception as e:
         print(f"⚠️ pipeline.encode_prompt() failed: {e}. Traceback follows.")
         traceback.print_exc()
+        
+        # Clear cache on any error
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        # Only fall back to raw prompts for non-OOM errors
+        # But this will likely still cause the original negative_prompt error
         print("Falling back to using raw prompts (this will likely cause the original error with FluxPipeline).")
         generation_kwargs["prompt"] = prompt
         generation_kwargs["negative_prompt"] = negative_prompt
@@ -769,23 +803,40 @@ def image_to_image(params: dict) -> list:
     print("🧬 Generating prompt embeddings for Img2Img using pipeline.encode_prompt()...")
     try:
         device = get_device()
+        
+        # Clear GPU cache before encoding
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print(f"💾 GPU Memory before img2img encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
-        # Encode positive prompt
+        # Encode positive prompt with memory management
+        print("🔤 Encoding positive prompt for img2img...")
         prompt_embeds_obj = img2img_pipe.encode_prompt(
             prompt=prompt,
-            prompt_2=prompt,
+            prompt_2=prompt, # Added for FLUX dual encoder
             device=device,
             num_images_per_prompt=1
         )
+        
+        # Clear cache after positive encoding
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print(f"💾 GPU Memory after positive img2img encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
-        # Encode negative prompt
+        # Encode negative prompt with memory management
+        print("🔤 Encoding negative prompt for img2img...")
         current_negative_prompt = negative_prompt if negative_prompt else ""
         negative_prompt_embeds_obj = img2img_pipe.encode_prompt(
             prompt=current_negative_prompt,
-            prompt_2=current_negative_prompt,
+            prompt_2=current_negative_prompt, # Added for FLUX dual encoder
             device=device,
             num_images_per_prompt=1
         )
+        
+        # Clear cache after negative encoding
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print(f"💾 GPU Memory after negative img2img encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
         # Unpack positive embeddings
         if hasattr(prompt_embeds_obj, 'prompt_embeds'):
@@ -821,9 +872,22 @@ def image_to_image(params: dict) -> list:
 
         print("✅ Img2Img Embeddings successfully generated and assigned.")
 
+    except torch.cuda.OutOfMemoryError as oom_error:
+        print(f"❌ CUDA Out of Memory during img2img encode_prompt: {oom_error}")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print("🧹 Cleared GPU cache after img2img OOM error")
+        
+        raise RuntimeError(f"GPU memory insufficient for img2img prompt encoding. Please try with shorter prompts or switch to a GPU with more memory. Original error: {oom_error}")
+        
     except Exception as e:
         print(f"⚠️ Img2Img pipeline.encode_prompt() failed: {e}. Traceback follows.")
         traceback.print_exc()
+        
+        # Clear cache on any error
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
         print("Falling back to using raw prompts for Img2Img (this will likely cause the original error).")
         generation_kwargs["prompt"] = prompt
         generation_kwargs["negative_prompt"] = negative_prompt
