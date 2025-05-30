@@ -45,25 +45,31 @@ export default function ImageToImagePanel() {
   
   const [params, setParams] = useState<ImageToImageParams>({
     prompt: '',
-    negativePrompt: 'low quality, blurry, bad anatomy, deformed hands, extra fingers, missing fingers, deformed limbs, extra limbs, bad proportions, malformed genitals, watermark',
-    image: '',
+    negativePrompt: '', // Will be conditionally shown
+    image: '', // Required for image-to-image
     width: 512,
     height: 512,
-    steps: 20,
-    cfgScale: 7.0,
+    steps: baseModel === 'realistic' ? 12 : 20,
+    cfgScale: baseModel === 'realistic' ? 1.0 : 7.0,
+    denoisingStrength: 0.7,
     seed: -1,
     numImages: 1,
-    denoisingStrength: 0.7,
     baseModel: baseModel,
     lora_config: loraConfig,
   })
 
   // Update params when global base model changes
   React.useEffect(() => {
+    console.log('ImageToImage: BaseModel changed to:', baseModel)
+    console.log('ImageToImage: LoRA config changed to:', loraConfig)
+    
     setParams(prev => ({
       ...prev,
       baseModel: baseModel,
-      lora_config: loraConfig
+      lora_config: loraConfig,
+      // Adjust default parameters based on model type
+      steps: baseModel === 'realistic' ? 12 : 20,
+      cfgScale: baseModel === 'realistic' ? 1.0 : 7.0,
     }))
   }, [baseModel, loraConfig])
 
@@ -222,11 +228,9 @@ export default function ImageToImagePanel() {
   }
 
   const presetSizes = [
-    { label: '512×512', width: 512, height: 512 },
-    { label: '768×768', width: 768, height: 768 },
-    { label: '1024×1024', width: 1024, height: 1024 },
-    { label: '512×768', width: 512, height: 768 },
-    { label: '768×512', width: 768, height: 512 },
+    { label: 'Square\n1024×1024', width: 1024, height: 1024 },
+    { label: 'Landscape\n1216×832', width: 1216, height: 832 },
+    { label: 'Portrait\n832×1216', width: 832, height: 1216 },
   ]
 
   return (
@@ -321,26 +325,28 @@ export default function ImageToImagePanel() {
               />
             </div>
 
-            {/* Negative Prompt */}
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">
-                Negative Prompt
-              </label>
-              <textarea
-                value={params.negativePrompt}
-                onChange={(e) => setParams(prev => ({ ...prev, negativePrompt: e.target.value }))}
-                placeholder="blurry, low quality, distorted..."
-                className="textarea-field h-20"
-                disabled={status === 'pending'}
-              />
-            </div>
+            {/* Negative Prompt - Only for Anime Models */}
+            {baseModel === 'anime' && (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  Negative Prompt
+                </label>
+                <textarea
+                  value={params.negativePrompt}
+                  onChange={(e) => setParams(prev => ({ ...prev, negativePrompt: e.target.value }))}
+                  placeholder="blurry, low quality, distorted..."
+                  className="textarea-field h-20"
+                  disabled={status === 'pending'}
+                />
+              </div>
+            )}
 
             {/* Size Presets */}
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700">
-                Output Size
+                Aspect Ratio
               </label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 {presetSizes.map((size) => (
                   <button
                     key={size.label}
@@ -349,7 +355,7 @@ export default function ImageToImagePanel() {
                       width: size.width, 
                       height: size.height 
                     }))}
-                    className={`p-2 text-sm rounded-lg border transition-colors ${
+                    className={`p-3 text-xs text-center rounded-lg border transition-colors whitespace-pre-line ${
                       params.width === size.width && params.height === size.height
                         ? 'border-primary-500 bg-primary-50 text-primary-700'
                         : 'border-gray-300 hover:border-gray-400'
@@ -440,32 +446,32 @@ export default function ImageToImagePanel() {
                 {/* Steps */}
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    Steps: {params.steps}
+                    Steps: {params.steps} {baseModel === 'realistic' ? '(FLUX推荐12)' : '(动漫推荐20)'}
                   </label>
                   <input
                     type="range"
-                    min="10"
-                    max="50"
+                    min={baseModel === 'realistic' ? "8" : "10"}
+                    max={baseModel === 'realistic' ? "20" : "50"}
                     value={params.steps}
                     onChange={(e) => setParams(prev => ({ ...prev, steps: Number(e.target.value) }))}
                     className="slider"
                     disabled={status === 'pending'}
                   />
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>10</span>
-                    <span>50</span>
+                    <span>{baseModel === 'realistic' ? '8' : '10'}</span>
+                    <span>{baseModel === 'realistic' ? '20' : '50'}</span>
                   </div>
                 </div>
 
                 {/* CFG Scale */}
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    CFG Scale: {params.cfgScale}
+                    CFG Scale: {params.cfgScale} {baseModel === 'realistic' ? '(FLUX推荐1)' : '(动漫推荐7)'}
                   </label>
                   <input
                     type="range"
-                    min="1"
-                    max="20"
+                    min={baseModel === 'realistic' ? "0.5" : "1"}
+                    max={baseModel === 'realistic' ? "3" : "20"}
                     step="0.5"
                     value={params.cfgScale}
                     onChange={(e) => setParams(prev => ({ ...prev, cfgScale: Number(e.target.value) }))}
@@ -473,8 +479,8 @@ export default function ImageToImagePanel() {
                     disabled={status === 'pending'}
                   />
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>1</span>
-                    <span>20</span>
+                    <span>{baseModel === 'realistic' ? '0.5' : '1'}</span>
+                    <span>{baseModel === 'realistic' ? '3' : '20'}</span>
                   </div>
                 </div>
 

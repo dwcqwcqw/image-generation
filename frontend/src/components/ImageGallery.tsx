@@ -45,17 +45,43 @@ export default function ImageGallery({
     }
   }
 
+  const handleDownloadCurrent = async () => {
+    try {
+      const imagesToDownload = currentImages.map(img => ({ url: img.url, id: img.id }))
+      await downloadAllCloudflareImages(imagesToDownload)
+      toast.success(`Downloaded ${currentImages.length} current images`)
+    } catch (error) {
+      console.error('Current images download failed:', error)
+      toast.error('Some downloads may have failed')
+    }
+  }
+
+  const handleDownloadHistory = async () => {
+    try {
+      const imagesToDownload = historyImages.map(img => ({ url: img.url, id: img.id }))
+      await downloadAllCloudflareImages(imagesToDownload)
+      toast.success(`Downloaded ${historyImages.length} history images`)
+    } catch (error) {
+      console.error('History images download failed:', error)
+      toast.error('Some downloads may have failed')
+    }
+  }
+
   const handleDownloadAll = async () => {
     if (onDownloadAll) {
       onDownloadAll()
     } else {
-      try {
-        const imagesToDownload = displayImages.map(img => ({ url: img.url, id: img.id }))
-        await downloadAllCloudflareImages(imagesToDownload)
-        toast.success(`Downloaded ${displayImages.length} images`)
-      } catch (error) {
-        console.error('Batch download failed:', error)
-        toast.error('Some downloads may have failed')
+      if (showTab === 'current') {
+        await handleDownloadCurrent()
+      } else {
+        try {
+          const imagesToDownload = allImages.map(img => ({ url: img.url, id: img.id }))
+          await downloadAllCloudflareImages(imagesToDownload)
+          toast.success(`Downloaded ${allImages.length} images`)
+        } catch (error) {
+          console.error('Batch download failed:', error)
+          toast.error('Some downloads may have failed')
+        }
       }
     }
   }
@@ -147,7 +173,12 @@ export default function ImageGallery({
               className="btn-secondary flex items-center space-x-2 px-3 py-2 text-sm"
             >
               <Download className="w-4 h-4" />
-              <span>Download All</span>
+              <span>
+                {showTab === 'current' 
+                  ? `Download Current (${currentImages.length})` 
+                  : `Download All (${allImages.length})`
+                }
+              </span>
             </button>
           )}
         </div>

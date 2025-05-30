@@ -28,6 +28,43 @@ function HomePageContent() {
             </p>
           </div>
 
+          {/* Tab Selection */}
+          <div className="mb-6">
+            <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
+              <div className="border-b border-gray-200 bg-gray-50">
+                <div className="flex">
+                  <button
+                    onClick={() => setActiveTab('text-to-image')}
+                    className={`flex-1 px-6 py-4 text-sm font-medium text-center border-b-2 transition-colors duration-200 ${
+                      activeTab === 'text-to-image'
+                        ? 'border-primary-500 text-primary-600 bg-white'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    <div className="flex items-center justify-center space-x-2">
+                      <Type className="w-4 h-4" />
+                      <span>Text to Image</span>
+                    </div>
+                  </button>
+                  
+                  <button
+                    onClick={() => setActiveTab('image-to-image')}
+                    className={`flex-1 px-6 py-4 text-sm font-medium text-center border-b-2 transition-colors duration-200 ${
+                      activeTab === 'image-to-image'
+                        ? 'border-primary-500 text-primary-600 bg-white'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    <div className="flex items-center justify-center space-x-2">
+                      <ImageIcon className="w-4 h-4" />
+                      <span>Image to Image</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Global Base Model Selector */}
           <div className="mb-6">
             <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6">
@@ -41,38 +78,6 @@ function HomePageContent() {
           </div>
 
           <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
-            <div className="border-b border-gray-200 bg-gray-50">
-              <div className="flex">
-                <button
-                  onClick={() => setActiveTab('text-to-image')}
-                  className={`flex-1 px-6 py-4 text-sm font-medium text-center border-b-2 transition-colors duration-200 ${
-                    activeTab === 'text-to-image'
-                      ? 'border-primary-500 text-primary-600 bg-white'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  <div className="flex items-center justify-center space-x-2">
-                    <Type className="w-4 h-4" />
-                    <span>Text to Image</span>
-                  </div>
-                </button>
-                
-                <button
-                  onClick={() => setActiveTab('image-to-image')}
-                  className={`flex-1 px-6 py-4 text-sm font-medium text-center border-b-2 transition-colors duration-200 ${
-                    activeTab === 'image-to-image'
-                      ? 'border-primary-500 text-primary-600 bg-white'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  <div className="flex items-center justify-center space-x-2">
-                    <ImageIcon className="w-4 h-4" />
-                    <span>Image to Image</span>
-                  </div>
-                </button>
-              </div>
-            </div>
-
             <div className="p-6">
               {activeTab === 'text-to-image' && <TextToImagePanel />}
               {activeTab === 'image-to-image' && <ImageToImagePanel />}
