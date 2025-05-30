@@ -5,7 +5,11 @@ import Image from 'next/image'
 import { Download, Eye, Copy, Trash2, RefreshCw, Archive, Clock } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import type { GeneratedImage } from '@/types'
-import { getProxiedImageUrl, downloadImage, downloadAllImages } from '@/utils/imageProxy'
+import { 
+  getCloudflareImageUrl, 
+  downloadCloudflareImage, 
+  downloadAllCloudflareImages 
+} from '@/utils/cloudflareImageProxy'
 
 interface ImageGalleryProps {
   currentImages?: GeneratedImage[]    // 当前任务生成的图片
@@ -31,7 +35,7 @@ export default function ImageGallery({
   const handleDownload = async (image: GeneratedImage) => {
     try {
       const filename = `ai-generated-${image.id}.png`
-      await downloadImage(image.url, filename)
+      await downloadCloudflareImage(image.url, filename)
       toast.success('Image downloaded successfully')
     } catch (error) {
       console.error('Download failed:', error)
@@ -45,7 +49,7 @@ export default function ImageGallery({
     } else {
       try {
         const imagesToDownload = displayImages.map(img => ({ url: img.url, id: img.id }))
-        await downloadAllImages(imagesToDownload)
+        await downloadAllCloudflareImages(imagesToDownload)
         toast.success(`Downloaded ${displayImages.length} images`)
       } catch (error) {
         console.error('Batch download failed:', error)
@@ -173,11 +177,18 @@ export default function ImageGallery({
             </div>
 
             <Image
-              src={getProxiedImageUrl(image.url)}
+              src={getCloudflareImageUrl(image.url)}
               alt={image.prompt}
               fill
               className="object-cover transition-transform duration-300 group-hover:scale-105"
               sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+              onError={(e) => {
+                console.error('Image load error for:', image.url)
+                const target = e.target as HTMLImageElement
+                if (target.src !== image.url) {
+                  target.src = image.url
+                }
+              }}
             />
             
             {/* Overlay */}
@@ -245,7 +256,7 @@ export default function ImageGallery({
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden">
                   <Image
-                    src={getProxiedImageUrl(selectedImage.url)}
+                    src={getCloudflareImageUrl(selectedImage.url)}
                     alt={selectedImage.prompt}
                     fill
                     className="object-cover"

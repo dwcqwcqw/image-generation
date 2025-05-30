@@ -19,7 +19,7 @@ import ImageGallery from './ImageGallery'
 import LoRASelector from './LoRASelector'
 import { useBaseModel } from '@/contexts/BaseModelContext'
 import { generateTextToImage } from '@/services/api'
-import { downloadAllImages as downloadAllImagesUtil } from '@/utils/imageProxy'
+import { downloadAllCloudflareImages } from '@/utils/cloudflareImageProxy'
 import type { TextToImageParams, GeneratedImage } from '@/types'
 
 type GenerationStatus = 'idle' | 'pending' | 'success' | 'error' | 'cancelled'
@@ -142,7 +142,7 @@ export default function TextToImagePanel() {
     try {
       const displayImages = [...currentGenerationImages, ...historyImages]
       const imagesToDownload = displayImages.map(img => ({ url: img.url, id: img.id }))
-      await downloadAllImagesUtil(imagesToDownload)
+      await downloadAllCloudflareImages(imagesToDownload)
       toast.success(`Downloaded ${displayImages.length} images`)
     } catch (error) {
       console.error('Download failed:', error)
