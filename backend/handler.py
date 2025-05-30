@@ -194,6 +194,7 @@ txt2img_pipe = None
 img2img_pipe = None
 current_lora_config = DEFAULT_LORA_CONFIG.copy()
 current_base_model = "realistic"  # 当前加载的基础模型
+device_mapping_enabled = False  # Track if device mapping is used
 
 # 全局变量存储compel处理器
 compel_proc = None
@@ -219,7 +220,7 @@ def load_models():
 
 def load_specific_model(base_model_type: str):
     """加载指定的基础模型"""
-    global txt2img_pipe, img2img_pipe, current_base_model
+    global txt2img_pipe, img2img_pipe, current_base_model, device_mapping_enabled
     
     if base_model_type not in BASE_MODELS:
         raise ValueError(f"Unknown base model type: {base_model_type}")
@@ -265,7 +266,7 @@ def load_specific_model(base_model_type: str):
         }
         
         # 尝试使用设备映射优化 - 修复兼容性问题
-        device_mapping_used = False  # 标志跟踪是否使用设备映射
+        device_mapping_enabled = False  # Reset and track device mapping status
         if device == "cuda":
             try:
                 # 先尝试 "balanced" 策略
@@ -277,7 +278,7 @@ def load_specific_model(base_model_type: str):
                     **model_kwargs_with_device_map
                 )
                 print("✅ Device mapping enabled with 'balanced' strategy")
-                device_mapping_used = True
+                device_mapping_enabled = True
                 
             except Exception as device_map_error:
                 print(f"⚠️  Device mapping failed ({device_map_error}), loading without device mapping")
@@ -286,14 +287,14 @@ def load_specific_model(base_model_type: str):
                     base_path,
                     **model_kwargs
                 )
-                device_mapping_used = False
+                device_mapping_enabled = False
         else:
             # CPU模式直接加载
             txt2img_pipe = FluxPipeline.from_pretrained(
                 base_path,
                 **model_kwargs
             )
-            device_mapping_used = False
+            device_mapping_enabled = False
         
         loading_time = (datetime.now() - start_time).total_seconds()
         print(f"⏱️  Base model loaded in {loading_time:.2f}s")
@@ -349,7 +350,7 @@ def load_specific_model(base_model_type: str):
             raise RuntimeError(f"Required LoRA model not found for {model_config['name']}")
         
         # 🎯 优化4: 智能设备移动（仅在未使用设备映射时）
-        if not device_mapping_used:
+        if not device_mapping_enabled:
             device_start_time = datetime.now()
             print("🚚 Moving pipeline to device...")
             
@@ -545,27 +546,31 @@ def text_to_image(params: dict) -> list:
             torch.cuda.empty_cache()
             print(f"💾 GPU Memory before encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
             
-        # Try to move text encoders to CPU temporarily to save GPU memory during encoding
-        # This is crucial for large models like FLUX that already use most GPU memory
+        # Only try to move text encoders to CPU if device mapping is NOT enabled
+        # Device mapping conflicts with manual component movement
         text_encoder_device = None
         text_encoder_2_device = None
         
         try:
-            # Store original devices and move text encoders to CPU
-            if hasattr(txt2img_pipe, 'text_encoder') and txt2img_pipe.text_encoder is not None:
-                text_encoder_device = next(txt2img_pipe.text_encoder.parameters()).device
-                if str(text_encoder_device) != 'cpu':
-                    print("📦 Moving text_encoder to CPU temporarily to save GPU memory...")
-                    txt2img_pipe.text_encoder.to('cpu')
-                    torch.cuda.empty_cache()
-                    
-            if hasattr(txt2img_pipe, 'text_encoder_2') and txt2img_pipe.text_encoder_2 is not None:
-                text_encoder_2_device = next(txt2img_pipe.text_encoder_2.parameters()).device
-                if str(text_encoder_2_device) != 'cpu':
-                    print("📦 Moving text_encoder_2 to CPU temporarily to save GPU memory...")
-                    txt2img_pipe.text_encoder_2.to('cpu')
-                    torch.cuda.empty_cache()
-                    print(f"💾 GPU Memory after moving encoders to CPU: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+            if not device_mapping_enabled:
+                print("📦 Manual memory management mode (no device mapping)")
+                # Store original devices and move text encoders to CPU
+                if hasattr(txt2img_pipe, 'text_encoder') and txt2img_pipe.text_encoder is not None:
+                    text_encoder_device = next(txt2img_pipe.text_encoder.parameters()).device
+                    if str(text_encoder_device) != 'cpu':
+                        print("📦 Moving text_encoder to CPU temporarily to save GPU memory...")
+                        txt2img_pipe.text_encoder.to('cpu')
+                        torch.cuda.empty_cache()
+                        
+                if hasattr(txt2img_pipe, 'text_encoder_2') and txt2img_pipe.text_encoder_2 is not None:
+                    text_encoder_2_device = next(txt2img_pipe.text_encoder_2.parameters()).device
+                    if str(text_encoder_2_device) != 'cpu':
+                        print("📦 Moving text_encoder_2 to CPU temporarily to save GPU memory...")
+                        txt2img_pipe.text_encoder_2.to('cpu')
+                        torch.cuda.empty_cache()
+                        print(f"💾 GPU Memory after moving encoders to CPU: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+            else:
+                print("⚡ Device mapping mode - trusting accelerate for memory management")
 
             # Encode positive prompt with memory management
             print("🔤 Encoding positive prompt...")
@@ -577,7 +582,7 @@ def text_to_image(params: dict) -> list:
                     num_images_per_prompt=1 
                 )
             
-            # Force move embeddings to CPU immediately to free GPU memory
+            # Force move embeddings to CPU immediately
             if hasattr(prompt_embeds_obj, 'prompt_embeds'):
                 prompt_embeds_cpu = prompt_embeds_obj.prompt_embeds.cpu()
                 pooled_prompt_embeds_cpu = prompt_embeds_obj.pooled_prompt_embeds.cpu() if hasattr(prompt_embeds_obj, 'pooled_prompt_embeds') else None
@@ -615,14 +620,17 @@ def text_to_image(params: dict) -> list:
             print(f"💾 GPU Memory after negative encoding (moved to CPU): {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
             
         finally:
-            # Restore text encoders to original devices
-            if text_encoder_device is not None and hasattr(txt2img_pipe, 'text_encoder') and txt2img_pipe.text_encoder is not None:
-                print(f"📦 Restoring text_encoder to {text_encoder_device}...")
-                txt2img_pipe.text_encoder.to(text_encoder_device)
-                
-            if text_encoder_2_device is not None and hasattr(txt2img_pipe, 'text_encoder_2') and txt2img_pipe.text_encoder_2 is not None:
-                print(f"📦 Restoring text_encoder_2 to {text_encoder_2_device}...")
-                txt2img_pipe.text_encoder_2.to(text_encoder_2_device)
+            # Restore text encoders to original devices (only if we moved them manually)
+            if not device_mapping_enabled:
+                if text_encoder_device is not None and hasattr(txt2img_pipe, 'text_encoder') and txt2img_pipe.text_encoder is not None:
+                    print(f"📦 Restoring text_encoder to {text_encoder_device}...")
+                    txt2img_pipe.text_encoder.to(text_encoder_device)
+                    
+                if text_encoder_2_device is not None and hasattr(txt2img_pipe, 'text_encoder_2') and txt2img_pipe.text_encoder_2 is not None:
+                    print(f"📦 Restoring text_encoder_2 to {text_encoder_2_device}...")
+                    txt2img_pipe.text_encoder_2.to(text_encoder_2_device)
+            else:
+                print("⚡ Skipping text encoder restoration (device mapping handles placement)")
                 
             torch.cuda.empty_cache()
 
@@ -842,26 +850,31 @@ def image_to_image(params: dict) -> list:
             torch.cuda.empty_cache()
             print(f"💾 GPU Memory before img2img encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
-        # Try to move text encoders to CPU temporarily to save GPU memory during encoding
+        # Only try to move text encoders to CPU if device mapping is NOT enabled
+        # Device mapping conflicts with manual component movement
         text_encoder_device = None
         text_encoder_2_device = None
         
         try:
-            # Store original devices and move text encoders to CPU
-            if hasattr(img2img_pipe, 'text_encoder') and img2img_pipe.text_encoder is not None:
-                text_encoder_device = next(img2img_pipe.text_encoder.parameters()).device
-                if str(text_encoder_device) != 'cpu':
-                    print("📦 Moving img2img text_encoder to CPU temporarily...")
-                    img2img_pipe.text_encoder.to('cpu')
-                    torch.cuda.empty_cache()
-                    
-            if hasattr(img2img_pipe, 'text_encoder_2') and img2img_pipe.text_encoder_2 is not None:
-                text_encoder_2_device = next(img2img_pipe.text_encoder_2.parameters()).device
-                if str(text_encoder_2_device) != 'cpu':
-                    print("📦 Moving img2img text_encoder_2 to CPU temporarily...")
-                    img2img_pipe.text_encoder_2.to('cpu')
-                    torch.cuda.empty_cache()
-                    print(f"💾 GPU Memory after moving img2img encoders to CPU: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+            if not device_mapping_enabled:
+                print("📦 Manual memory management mode for img2img (no device mapping)")
+                # Store original devices and move text encoders to CPU
+                if hasattr(img2img_pipe, 'text_encoder') and img2img_pipe.text_encoder is not None:
+                    text_encoder_device = next(img2img_pipe.text_encoder.parameters()).device
+                    if str(text_encoder_device) != 'cpu':
+                        print("📦 Moving img2img text_encoder to CPU temporarily...")
+                        img2img_pipe.text_encoder.to('cpu')
+                        torch.cuda.empty_cache()
+                        
+                if hasattr(img2img_pipe, 'text_encoder_2') and img2img_pipe.text_encoder_2 is not None:
+                    text_encoder_2_device = next(img2img_pipe.text_encoder_2.parameters()).device
+                    if str(text_encoder_2_device) != 'cpu':
+                        print("📦 Moving img2img text_encoder_2 to CPU temporarily...")
+                        img2img_pipe.text_encoder_2.to('cpu')
+                        torch.cuda.empty_cache()
+                        print(f"💾 GPU Memory after moving img2img encoders to CPU: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+            else:
+                print("⚡ Device mapping mode for img2img - trusting accelerate for memory management")
 
             # Encode positive prompt with memory management
             print("🔤 Encoding positive prompt for img2img...")
@@ -909,14 +922,17 @@ def image_to_image(params: dict) -> list:
             print(f"💾 GPU Memory after negative img2img encoding (moved to CPU): {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
             
         finally:
-            # Restore text encoders to original devices
-            if text_encoder_device is not None and hasattr(img2img_pipe, 'text_encoder') and img2img_pipe.text_encoder is not None:
-                print(f"📦 Restoring img2img text_encoder to {text_encoder_device}...")
-                img2img_pipe.text_encoder.to(text_encoder_device)
-                
-            if text_encoder_2_device is not None and hasattr(img2img_pipe, 'text_encoder_2') and img2img_pipe.text_encoder_2 is not None:
-                print(f"📦 Restoring img2img text_encoder_2 to {text_encoder_2_device}...")
-                img2img_pipe.text_encoder_2.to(text_encoder_2_device)
+            # Restore text encoders to original devices (only if we moved them manually)
+            if not device_mapping_enabled:
+                if text_encoder_device is not None and hasattr(img2img_pipe, 'text_encoder') and img2img_pipe.text_encoder is not None:
+                    print(f"📦 Restoring img2img text_encoder to {text_encoder_device}...")
+                    img2img_pipe.text_encoder.to(text_encoder_device)
+                    
+                if text_encoder_2_device is not None and hasattr(img2img_pipe, 'text_encoder_2') and img2img_pipe.text_encoder_2 is not None:
+                    print(f"📦 Restoring img2img text_encoder_2 to {text_encoder_2_device}...")
+                    img2img_pipe.text_encoder_2.to(text_encoder_2_device)
+            else:
+                print("⚡ Skipping img2img text encoder restoration (device mapping handles placement)")
                 
             torch.cuda.empty_cache()
 
