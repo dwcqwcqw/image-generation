@@ -1,6 +1,6 @@
 import runpod
 import torch
-from diffusers import FluxPipeline, FluxImg2ImgPipeline
+from diffusers import FluxPipeline, FluxImg2ImgPipeline, StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
 from PIL import Image
 import base64
 import io
@@ -75,18 +75,20 @@ CLOUDFLARE_R2_PUBLIC_DOMAIN = os.getenv("CLOUDFLARE_R2_PUBLIC_DOMAIN")  # 可选
 FLUX_BASE_PATH = "/runpod-volume/flux_base"
 FLUX_LORA_BASE_PATH = "/runpod-volume/lora"
 
-# 基础模型配置
+# 基础模型配置 - 支持不同模型类型
 BASE_MODELS = {
     "realistic": {
         "name": "真人风格",
+        "model_type": "flux",  # FLUX模型类型
         "base_path": "/runpod-volume/flux_base",
         "lora_path": "/runpod-volume/lora/flux_nsfw",
         "lora_id": "flux_nsfw"
     },
     "anime": {
         "name": "动漫风格",
+        "model_type": "diffusers",  # 标准diffusers模型类型
         "base_path": "/runpod-volume/cartoon/waiNSFWIllustrious_v130.safetensors",
-        "lora_path": "/runpod-volume/cartoon/lora/Gayporn.safetensor",
+        "lora_path": "/runpod-volume/cartoon/lora/Gayporn.safetensor", 
         "lora_id": "gayporn"
     }
 }
@@ -219,8 +221,131 @@ def load_models():
     base_model_type = "realistic"
     load_specific_model(base_model_type)
 
+def load_flux_model(base_path: str, device: str) -> tuple:
+    """加载FLUX模型"""
+    # 内存优化配置
+    model_kwargs = {
+        "torch_dtype": torch.float16 if device == "cuda" else torch.float32,
+        "use_safetensors": True,
+        "low_cpu_mem_usage": True,
+    }
+    
+    # 尝试使用设备映射优化
+    if device == "cuda":
+        try:
+            # 先尝试 "balanced" 策略
+            model_kwargs_with_device_map = model_kwargs.copy()
+            model_kwargs_with_device_map["device_map"] = "balanced"
+            
+            txt2img_pipe = FluxPipeline.from_pretrained(
+                base_path,
+                **model_kwargs_with_device_map
+            )
+            print("✅ Device mapping enabled with 'balanced' strategy")
+            
+        except Exception as device_map_error:
+            print(f"⚠️  Device mapping failed ({device_map_error}), loading without device mapping")
+            # 回退到不使用设备映射
+            txt2img_pipe = FluxPipeline.from_pretrained(
+                base_path,
+                **model_kwargs
+            )
+    else:
+        # CPU模式直接加载
+        txt2img_pipe = FluxPipeline.from_pretrained(
+            base_path,
+            **model_kwargs
+        )
+    
+    # 启用优化
+    try:
+        txt2img_pipe.enable_attention_slicing()
+        print("✅ Attention slicing enabled")
+    except Exception as e:
+        print(f"⚠️  Attention slicing not available: {e}")
+        
+    try:
+        txt2img_pipe.enable_model_cpu_offload()
+        print("✅ CPU offload enabled")
+    except Exception as e:
+        print(f"⚠️  CPU offload not available: {e}")
+    
+    try:
+        txt2img_pipe.enable_vae_slicing()
+        txt2img_pipe.enable_vae_tiling()
+        print("✅ VAE optimizations enabled")
+    except Exception as e:
+        print(f"⚠️  VAE optimizations not available: {e}")
+    
+    # 创建图生图管道
+    print("🔗 Creating FLUX image-to-image pipeline (sharing components)...")
+    img2img_pipe = FluxImg2ImgPipeline(
+        vae=txt2img_pipe.vae,
+        text_encoder=txt2img_pipe.text_encoder,
+        text_encoder_2=txt2img_pipe.text_encoder_2,
+        tokenizer=txt2img_pipe.tokenizer,
+        tokenizer_2=txt2img_pipe.tokenizer_2,
+        transformer=txt2img_pipe.transformer,
+        scheduler=txt2img_pipe.scheduler,
+    )
+    
+    return txt2img_pipe, img2img_pipe
+
+def load_diffusers_model(base_path: str, device: str) -> tuple:
+    """加载标准Diffusers模型（如Stable Diffusion）"""
+    # 内存优化配置
+    model_kwargs = {
+        "torch_dtype": torch.float16 if device == "cuda" else torch.float32,
+        "use_safetensors": True,
+        "low_cpu_mem_usage": True,
+    }
+    
+    # 加载标准Stable Diffusion模型
+    txt2img_pipe = StableDiffusionPipeline.from_single_file(
+        base_path,
+        **model_kwargs
+    )
+    
+    # 移动到设备
+    if device == "cuda":
+        txt2img_pipe = txt2img_pipe.to(device)
+    
+    # 启用优化
+    try:
+        txt2img_pipe.enable_attention_slicing()
+        print("✅ Attention slicing enabled")
+    except Exception as e:
+        print(f"⚠️  Attention slicing not available: {e}")
+        
+    try:
+        txt2img_pipe.enable_model_cpu_offload()
+        print("✅ CPU offload enabled")
+    except Exception as e:
+        print(f"⚠️  CPU offload not available: {e}")
+    
+    try:
+        txt2img_pipe.enable_vae_slicing()
+        txt2img_pipe.enable_vae_tiling()
+        print("✅ VAE optimizations enabled")
+    except Exception as e:
+        print(f"⚠️  VAE optimizations not available: {e}")
+    
+    # 创建图生图管道
+    print("🔗 Creating standard image-to-image pipeline (sharing components)...")
+    img2img_pipe = StableDiffusionImg2ImgPipeline(
+        vae=txt2img_pipe.vae,
+        text_encoder=txt2img_pipe.text_encoder,
+        tokenizer=txt2img_pipe.tokenizer,
+        unet=txt2img_pipe.unet,
+        scheduler=txt2img_pipe.scheduler,
+        safety_checker=txt2img_pipe.safety_checker,
+        feature_extractor=txt2img_pipe.feature_extractor,
+    )
+    
+    return txt2img_pipe, img2img_pipe
+
 def load_specific_model(base_model_type: str):
-    """加载指定的基础模型"""
+    """加载指定的基础模型 - 支持多种模型类型"""
     global txt2img_pipe, img2img_pipe, current_base_model, device_mapping_enabled
     
     if base_model_type not in BASE_MODELS:
@@ -228,8 +353,9 @@ def load_specific_model(base_model_type: str):
     
     model_config = BASE_MODELS[base_model_type]
     base_path = model_config["base_path"]
+    model_type = model_config["model_type"]
     
-    print(f"🎨 Loading {model_config['name']} model from {base_path}")
+    print(f"🎨 Loading {model_config['name']} model ({model_type}) from {base_path}")
     start_time = datetime.now()
     
     # CUDA兼容性检查和修复
@@ -256,70 +382,24 @@ def load_specific_model(base_model_type: str):
         print(f"💾 GPU Memory before loading: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
     
     try:
-        # 🎯 优化1: 使用低内存模式和优化配置
-        print("⚡ Loading text-to-image pipeline with optimizations...")
-        
-        # 内存优化配置
-        model_kwargs = {
-            "torch_dtype": torch.float16 if device == "cuda" else torch.float32,
-            "use_safetensors": True,
-            "low_cpu_mem_usage": True,  # 低CPU内存使用
-        }
-        
-        # 尝试使用设备映射优化 - 修复兼容性问题
-        device_mapping_enabled = False  # Reset and track device mapping status
-        if device == "cuda":
-            try:
-                # 先尝试 "balanced" 策略
-                model_kwargs_with_device_map = model_kwargs.copy()
-                model_kwargs_with_device_map["device_map"] = "balanced"
-                
-                txt2img_pipe = FluxPipeline.from_pretrained(
-                    base_path,
-                    **model_kwargs_with_device_map
-                )
-                print("✅ Device mapping enabled with 'balanced' strategy")
-                device_mapping_enabled = True
-                
-            except Exception as device_map_error:
-                print(f"⚠️  Device mapping failed ({device_map_error}), loading without device mapping")
-                # 回退到不使用设备映射
-                txt2img_pipe = FluxPipeline.from_pretrained(
-                    base_path,
-                    **model_kwargs
-                )
-                device_mapping_enabled = False
+        # 🎯 根据模型类型选择不同的加载策略
+        if model_type == "flux":
+            # FLUX模型加载逻辑
+            print("⚡ Loading FLUX pipeline with optimizations...")
+            txt2img_pipe, img2img_pipe = load_flux_model(base_path, device)
+            device_mapping_enabled = True  # FLUX使用设备映射
+            
+        elif model_type == "diffusers":
+            # 标准Diffusers模型加载逻辑
+            print("⚡ Loading standard diffusion pipeline...")
+            txt2img_pipe, img2img_pipe = load_diffusers_model(base_path, device)
+            device_mapping_enabled = False  # 标准模型不使用设备映射
+            
         else:
-            # CPU模式直接加载
-            txt2img_pipe = FluxPipeline.from_pretrained(
-                base_path,
-                **model_kwargs
-            )
-            device_mapping_enabled = False
+            raise ValueError(f"Unsupported model type: {model_type}")
         
         loading_time = (datetime.now() - start_time).total_seconds()
         print(f"⏱️  Base model loaded in {loading_time:.2f}s")
-        
-        # 🎯 优化2: 启用内存高效注意力
-        try:
-            txt2img_pipe.enable_attention_slicing()
-            print("✅ Attention slicing enabled")
-        except Exception as e:
-            print(f"⚠️  Attention slicing not available: {e}")
-            
-        try:
-            txt2img_pipe.enable_model_cpu_offload()
-            print("✅ CPU offload enabled")
-        except Exception as e:
-            print(f"⚠️  CPU offload not available: {e}")
-        
-        # 🎯 优化3: VAE内存优化
-        try:
-            txt2img_pipe.enable_vae_slicing()
-            txt2img_pipe.enable_vae_tiling()
-            print("✅ VAE optimizations enabled")
-        except Exception as e:
-            print(f"⚠️  VAE optimizations not available: {e}")
         
         # 加载对应的默认 LoRA 权重
         lora_start_time = datetime.now()
@@ -335,54 +415,13 @@ def load_specific_model(base_model_type: str):
                 global current_lora_config
                 current_lora_config = {model_config["lora_id"]: 1.0}
                 
-            except ValueError as e:
-                if "PEFT backend is required" in str(e):
-                    print("❌ ERROR: PEFT backend is required for LoRA support")
-                    print("   Please install: pip install peft>=0.8.0")
-                    raise RuntimeError("PEFT library is required but not installed")
-                else:
-                    print(f"❌ ERROR: Failed to load LoRA weights: {e}")
-                    raise RuntimeError(f"Failed to load required LoRA model: {e}")
             except Exception as e:
-                print(f"❌ ERROR: Failed to load LoRA weights: {e}")
-                raise RuntimeError(f"Failed to load required LoRA model: {e}")
+                print(f"⚠️  LoRA loading failed: {e}")
+                print("Continuing without LoRA...")
+                current_lora_config = {}
         else:
-            print(f"❌ ERROR: Default LoRA weights not found at {default_lora_path}")
-            raise RuntimeError(f"Required LoRA model not found for {model_config['name']}")
-        
-        # 🎯 优化4: 智能设备移动（仅在未使用设备映射时）
-        if not device_mapping_enabled:
-            device_start_time = datetime.now()
-            print("🚚 Moving pipeline to device...")
-            
-            if device == "cuda":
-                # 渐进式移动到GPU，避免内存峰值
-                txt2img_pipe = txt2img_pipe.to(device)
-            else:
-                txt2img_pipe = txt2img_pipe.to(device)
-            
-            device_time = (datetime.now() - device_start_time).total_seconds()
-            print(f"✅ Device transfer completed in {device_time:.2f}s")
-        else:
-            print("⚡ Skipping manual device transfer (using device mapping)")
-        
-        # 🎯 优化5: 图生图模型使用共享组件 (零拷贝)
-        print("🔗 Creating image-to-image pipeline (sharing components)...")
-        img_start_time = datetime.now()
-        
-        img2img_pipe = FluxImg2ImgPipeline(
-            vae=txt2img_pipe.vae,
-            text_encoder=txt2img_pipe.text_encoder,
-            text_encoder_2=txt2img_pipe.text_encoder_2,
-            tokenizer=txt2img_pipe.tokenizer,
-            tokenizer_2=txt2img_pipe.tokenizer_2,
-            transformer=txt2img_pipe.transformer,
-            scheduler=txt2img_pipe.scheduler,
-        )
-        
-        # 不需要再次移动到设备，因为共享组件已经在设备上
-        img_time = (datetime.now() - img_start_time).total_seconds()
-        print(f"✅ Image-to-image pipeline created in {img_time:.2f}s")
+            print(f"⚠️  LoRA weights not found at {default_lora_path}")
+            current_lora_config = {}
         
         # 更新当前基础模型
         current_base_model = base_model_type
@@ -395,7 +434,7 @@ def load_specific_model(base_model_type: str):
         total_time = (datetime.now() - start_time).total_seconds()
         print(f"🎉 {model_config['name']} model loaded successfully in {total_time:.2f}s!")
         
-        # 🎯 优化6: 预热推理 (可选)
+        # 🎯 预热推理 (可选)
         try:
             print("🔥 Warming up models with test inference...")
             warmup_start = datetime.now()
@@ -406,7 +445,7 @@ def load_specific_model(base_model_type: str):
                     width=512,
                     height=512,
                     num_inference_steps=1,
-                    guidance_scale=1.0
+                    guidance_scale=1.0 if model_type == "flux" else 7.5
                 )
             warmup_time = (datetime.now() - warmup_start).total_seconds()
             print(f"✅ Model warmup completed in {warmup_time:.2f}s")
@@ -414,9 +453,6 @@ def load_specific_model(base_model_type: str):
             print(f"⚠️  Model warmup failed (不影响正常使用): {e}")
         
         print(f"🚀 {model_config['name']} system ready for image generation!")
-        
-        # compel_proc and advanced long prompt support is handled by pipeline.encode_prompt directly
-        # No need for separate Compel instances here for basic embedding generation
 
     except Exception as e:
         print(f"❌ Error loading {model_config['name']} model: {str(e)}")
@@ -610,36 +646,11 @@ def process_long_prompt(prompt: str, max_clip_tokens: int = 75, max_t5_tokens: i
             print(f"   T5 prompt: ~{len(t5_words)} words → {t5_token_count} tokens")
             return clip_prompt, t5_prompt
 
-def text_to_image(params: dict) -> list:
-    """文生图生成 - 优化版本 with long prompt support"""
-    global txt2img_pipe, current_base_model
+def generate_flux_images(prompt: str, negative_prompt: str, width: int, height: int, steps: int, cfg_scale: float, seed: int, num_images: int, base_model: str) -> list:
+    """FLUX模型图像生成"""
+    global txt2img_pipe, device_mapping_enabled
     
-    if txt2img_pipe is None:
-        raise ValueError("Text-to-image model not loaded")
-    
-    # 提取参数
-    prompt = params.get('prompt', '')
-    negative_prompt = params.get('negativePrompt', '')
-    width = params.get('width', 512)
-    height = params.get('height', 512)
-    steps = params.get('steps', 20)
-    cfg_scale = params.get('cfgScale', 7.0)
-    seed = params.get('seed', -1)
-    num_images = params.get('numImages', 1)
-    base_model = params.get('baseModel', 'realistic')
-    lora_config = params.get('lora_config', {})
-    
-    # 检查是否需要切换基础模型
-    if base_model != current_base_model:
-        print(f"Switching base model for generation: {current_base_model} -> {base_model}")
-        switch_base_model(base_model)
-    
-    # 检查是否需要更新LoRA配置
-    if lora_config and lora_config != current_lora_config:
-        print(f"Updating LoRA config for generation: {lora_config}")
-        load_multiple_loras(lora_config)
-    
-    # FLUX模型原生支持长提示词，不需要复杂的embedding处理
+    # FLUX模型原生支持长提示词，使用优化的embedding处理
     generation_kwargs = {
         "width": width,
         "height": height,
@@ -649,7 +660,7 @@ def text_to_image(params: dict) -> list:
     }
 
     # Generate embeds using the pipeline's own encoder for robustness
-    print("🧬 Generating prompt embeddings using pipeline.encode_prompt()...")
+    print("🧬 Generating FLUX prompt embeddings using pipeline.encode_prompt()...")
     try:
         device = get_device()
         
@@ -659,7 +670,6 @@ def text_to_image(params: dict) -> list:
             print(f"💾 GPU Memory before encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
             
         # Only try to move text encoders to CPU if device mapping is NOT enabled
-        # Device mapping conflicts with manual component movement
         text_encoder_device = None
         text_encoder_2_device = None
         
@@ -689,7 +699,6 @@ def text_to_image(params: dict) -> list:
             
             # 🎯 优化长提示词处理：为FLUX双编码器系统优化
             clip_prompt, t5_prompt = process_long_prompt(prompt)
-            # FLUX不需要负提示词嵌入，只处理正提示词
             
             with torch.cuda.amp.autocast(enabled=False):  # Disable autocast to reduce memory
                 prompt_embeds_obj = txt2img_pipe.encode_prompt(
@@ -712,7 +721,6 @@ def text_to_image(params: dict) -> list:
             torch.cuda.empty_cache()
             print(f"💾 GPU Memory after positive encoding (moved to CPU): {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
-            # ❌ 跳过负提示词嵌入编码，FLUX不支持
             print("⚡ Skipping negative prompt embedding encoding (FLUX doesn't support negative_prompt_embeds)")
             
         finally:
@@ -735,14 +743,9 @@ def text_to_image(params: dict) -> list:
         
         # Move embeddings back to GPU when needed  
         generation_kwargs["prompt_embeds"] = prompt_embeds_cpu.to(device)
-        # ❌ FLUX不支持negative_prompt_embeds参数，移除
-        # generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_cpu.to(device)
         
         if pooled_prompt_embeds_cpu is not None:
             generation_kwargs["pooled_prompt_embeds"] = pooled_prompt_embeds_cpu.to(device)
-        # ❌ FLUX不支持negative_pooled_prompt_embeds参数，移除  
-        # if negative_pooled_prompt_embeds_cpu is not None:
-        #     generation_kwargs["negative_pooled_prompt_embeds"] = negative_pooled_prompt_embeds_cpu.to(device)
 
         # FLUX使用传统的guidance_scale参数
         generation_kwargs["guidance_scale"] = cfg_scale
@@ -750,27 +753,8 @@ def text_to_image(params: dict) -> list:
             
         print(f"💾 GPU Memory before generation: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
-    except torch.cuda.OutOfMemoryError as oom_error:
-        print(f"❌ CUDA Out of Memory during encode_prompt: {oom_error}")
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            print("🧹 Cleared GPU cache after OOM error")
-        
-        # For OOM errors, we should not fall back to raw prompts as that will cause the original error
-        # Instead, we should fail gracefully or try with reduced precision/smaller batches
-        raise RuntimeError(f"GPU memory insufficient for prompt encoding. Please try with shorter prompts or switch to a GPU with more memory. Original error: {oom_error}")
-        
     except Exception as e:
-        print(f"⚠️ pipeline.encode_prompt() failed: {e}. Traceback follows.")
-        traceback.print_exc()
-        
-        # Clear cache on any error
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        
-        # Only fall back to raw prompts for non-OOM errors
-        # But this will likely still cause the original negative_prompt error
-        print("Falling back to using raw prompts (this will likely cause the original error with FluxPipeline).")
+        print(f"⚠️ FLUX pipeline.encode_prompt() failed: {e}. Using raw prompts.")
         generation_kwargs["prompt"] = prompt
         generation_kwargs["negative_prompt"] = negative_prompt
 
@@ -781,6 +765,36 @@ def text_to_image(params: dict) -> list:
     generator = torch.Generator(device=txt2img_pipe.device).manual_seed(seed)
     generation_kwargs["generator"] = generator
 
+    return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text-to-image")
+
+def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, height: int, steps: int, cfg_scale: float, seed: int, num_images: int, base_model: str) -> list:
+    """标准Diffusers模型图像生成"""
+    global txt2img_pipe
+    
+    # 标准Diffusers模型使用简单的prompt处理
+    generation_kwargs = {
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "width": width,
+        "height": height,
+        "num_inference_steps": steps,
+        "guidance_scale": cfg_scale,
+        "generator": None,  # 稍后设置
+    }
+
+    # 设置随机种子
+    if seed == -1:
+        seed = torch.randint(0, 2**32 - 1, (1,)).item()
+    
+    generator = torch.Generator(device=txt2img_pipe.device).manual_seed(seed)
+    generation_kwargs["generator"] = generator
+
+    return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text-to-image")
+
+def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt: str, width: int, height: int, steps: int, cfg_scale: float, seed: int, num_images: int, base_model: str, task_type: str) -> list:
+    """通用图像生成逻辑"""
+    global txt2img_pipe
+    
     results = []
     
     # 优化：批量生成时一次性生成所有图片，而不是循环
@@ -815,7 +829,7 @@ def text_to_image(params: dict) -> list:
                         'cfgScale': cfg_scale,
                         'baseModel': base_model,
                         'createdAt': datetime.utcnow().isoformat(),
-                        'type': 'text-to-image'
+                        'type': task_type
                     }
                     
                     results.append(image_data)
@@ -865,7 +879,7 @@ def text_to_image(params: dict) -> list:
                     'cfgScale': cfg_scale,
                     'baseModel': base_model,
                     'createdAt': datetime.utcnow().isoformat(),
-                    'type': 'text-to-image'
+                    'type': task_type
                 }
                 
                 results.append(image_data)
@@ -885,6 +899,49 @@ def text_to_image(params: dict) -> list:
         torch.cuda.empty_cache()
     
     return results
+
+def text_to_image(params: dict) -> list:
+    """文生图生成 - 支持多种模型类型"""
+    global txt2img_pipe, current_base_model
+    
+    if txt2img_pipe is None:
+        raise ValueError("Text-to-image model not loaded")
+    
+    # 提取参数
+    prompt = params.get('prompt', '')
+    negative_prompt = params.get('negativePrompt', '')
+    width = params.get('width', 512)
+    height = params.get('height', 512)
+    steps = params.get('steps', 20)
+    cfg_scale = params.get('cfgScale', 7.0)
+    seed = params.get('seed', -1)
+    num_images = params.get('numImages', 1)
+    base_model = params.get('baseModel', 'realistic')
+    lora_config = params.get('lora_config', {})
+    
+    # 检查是否需要切换基础模型
+    if base_model != current_base_model:
+        print(f"Switching base model for generation: {current_base_model} -> {base_model}")
+        switch_base_model(base_model)
+    
+    # 检查是否需要更新LoRA配置
+    if lora_config and lora_config != current_lora_config:
+        print(f"Updating LoRA config for generation: {lora_config}")
+        load_multiple_loras(lora_config)
+    
+    # 获取当前模型类型
+    model_config = BASE_MODELS[current_base_model]
+    model_type = model_config["model_type"]
+    
+    print(f"🎨 Generating with {model_config['name']} ({model_type})")
+    
+    # 根据模型类型选择生成策略
+    if model_type == "flux":
+        return generate_flux_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model)
+    elif model_type == "diffusers":
+        return generate_diffusers_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model)
+    else:
+        raise ValueError(f"Unsupported model type: {model_type}")
 
 def image_to_image(params: dict) -> list:
     """图生图生成 - 优化版本"""
