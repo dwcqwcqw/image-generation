@@ -544,68 +544,101 @@ def text_to_image(params: dict) -> list:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             print(f"💾 GPU Memory before encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
-
-        # Encode positive prompt with memory management
-        print("🔤 Encoding positive prompt...")
-        prompt_embeds_obj = txt2img_pipe.encode_prompt(
-            prompt=prompt,
-            prompt_2=prompt, # Added for FLUX dual encoder
-            device=device,
-            num_images_per_prompt=1 
-        )
+            
+        # Try to move text encoders to CPU temporarily to save GPU memory during encoding
+        # This is crucial for large models like FLUX that already use most GPU memory
+        text_encoder_device = None
+        text_encoder_2_device = None
         
-        # Clear cache after positive encoding
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            print(f"💾 GPU Memory after positive encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+        try:
+            # Store original devices and move text encoders to CPU
+            if hasattr(txt2img_pipe, 'text_encoder') and txt2img_pipe.text_encoder is not None:
+                text_encoder_device = next(txt2img_pipe.text_encoder.parameters()).device
+                if str(text_encoder_device) != 'cpu':
+                    print("📦 Moving text_encoder to CPU temporarily to save GPU memory...")
+                    txt2img_pipe.text_encoder.to('cpu')
+                    torch.cuda.empty_cache()
+                    
+            if hasattr(txt2img_pipe, 'text_encoder_2') and txt2img_pipe.text_encoder_2 is not None:
+                text_encoder_2_device = next(txt2img_pipe.text_encoder_2.parameters()).device
+                if str(text_encoder_2_device) != 'cpu':
+                    print("📦 Moving text_encoder_2 to CPU temporarily to save GPU memory...")
+                    txt2img_pipe.text_encoder_2.to('cpu')
+                    torch.cuda.empty_cache()
+                    print(f"💾 GPU Memory after moving encoders to CPU: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
-        # Encode negative prompt with memory management
-        print("🔤 Encoding negative prompt...")
-        current_negative_prompt = negative_prompt if negative_prompt else ""
-        negative_prompt_embeds_obj = txt2img_pipe.encode_prompt(
-            prompt=current_negative_prompt, 
-            prompt_2=current_negative_prompt, # Added for FLUX dual encoder
-            device=device,
-            num_images_per_prompt=1
-        )
+            # Encode positive prompt with memory management
+            print("🔤 Encoding positive prompt...")
+            with torch.cuda.amp.autocast(enabled=False):  # Disable autocast to reduce memory
+                prompt_embeds_obj = txt2img_pipe.encode_prompt(
+                    prompt=prompt,
+                    prompt_2=prompt, # Added for FLUX dual encoder
+                    device=device,
+                    num_images_per_prompt=1 
+                )
+            
+            # Force move embeddings to CPU immediately to free GPU memory
+            if hasattr(prompt_embeds_obj, 'prompt_embeds'):
+                prompt_embeds_cpu = prompt_embeds_obj.prompt_embeds.cpu()
+                pooled_prompt_embeds_cpu = prompt_embeds_obj.pooled_prompt_embeds.cpu() if hasattr(prompt_embeds_obj, 'pooled_prompt_embeds') else None
+            else:
+                # Handle tuple case
+                prompt_embeds_cpu = prompt_embeds_obj[0].cpu() if isinstance(prompt_embeds_obj, tuple) else None
+                pooled_prompt_embeds_cpu = prompt_embeds_obj[1].cpu() if isinstance(prompt_embeds_obj, tuple) and len(prompt_embeds_obj) > 1 else None
+            
+            # Clear GPU memory after positive encoding
+            torch.cuda.empty_cache()
+            print(f"💾 GPU Memory after positive encoding (moved to CPU): {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+
+            # Encode negative prompt with memory management
+            print("🔤 Encoding negative prompt...")
+            current_negative_prompt = negative_prompt if negative_prompt else ""
+            with torch.cuda.amp.autocast(enabled=False):  # Disable autocast to reduce memory
+                negative_prompt_embeds_obj = txt2img_pipe.encode_prompt(
+                    prompt=current_negative_prompt, 
+                    prompt_2=current_negative_prompt, # Added for FLUX dual encoder
+                    device=device,
+                    num_images_per_prompt=1
+                )
+            
+            # Force move negative embeddings to CPU immediately
+            if hasattr(negative_prompt_embeds_obj, 'prompt_embeds'):
+                negative_prompt_embeds_cpu = negative_prompt_embeds_obj.prompt_embeds.cpu()
+                negative_pooled_prompt_embeds_cpu = negative_prompt_embeds_obj.pooled_prompt_embeds.cpu() if hasattr(negative_prompt_embeds_obj, 'pooled_prompt_embeds') else None
+            else:
+                # Handle tuple case
+                negative_prompt_embeds_cpu = negative_prompt_embeds_obj[0].cpu() if isinstance(negative_prompt_embeds_obj, tuple) else None
+                negative_pooled_prompt_embeds_cpu = negative_prompt_embeds_obj[1].cpu() if isinstance(negative_prompt_embeds_obj, tuple) and len(negative_prompt_embeds_obj) > 1 else None
+            
+            # Clear cache after negative encoding
+            torch.cuda.empty_cache()
+            print(f"💾 GPU Memory after negative encoding (moved to CPU): {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+            
+        finally:
+            # Restore text encoders to original devices
+            if text_encoder_device is not None and hasattr(txt2img_pipe, 'text_encoder') and txt2img_pipe.text_encoder is not None:
+                print(f"📦 Restoring text_encoder to {text_encoder_device}...")
+                txt2img_pipe.text_encoder.to(text_encoder_device)
+                
+            if text_encoder_2_device is not None and hasattr(txt2img_pipe, 'text_encoder_2') and txt2img_pipe.text_encoder_2 is not None:
+                print(f"📦 Restoring text_encoder_2 to {text_encoder_2_device}...")
+                txt2img_pipe.text_encoder_2.to(text_encoder_2_device)
+                
+            torch.cuda.empty_cache()
+
+        # Now move embeddings back to GPU and assign to generation_kwargs
+        print("🚀 Moving embeddings back to GPU for generation...")
         
-        # Clear cache after negative encoding
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            print(f"💾 GPU Memory after negative encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+        # Move embeddings back to GPU when needed
+        generation_kwargs["prompt_embeds"] = prompt_embeds_cpu.to(device)
+        generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_cpu.to(device)
+        
+        if pooled_prompt_embeds_cpu is not None:
+            generation_kwargs["pooled_prompt_embeds"] = pooled_prompt_embeds_cpu.to(device)
+        if negative_pooled_prompt_embeds_cpu is not None:
+            generation_kwargs["negative_pooled_prompt_embeds"] = negative_pooled_prompt_embeds_cpu.to(device)
 
-        # Unpack positive embeddings
-        if hasattr(prompt_embeds_obj, 'prompt_embeds'):
-            generation_kwargs["prompt_embeds"] = prompt_embeds_obj.prompt_embeds
-            if hasattr(prompt_embeds_obj, 'pooled_prompt_embeds'): # FLUX uses pooled
-                 generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_obj.pooled_prompt_embeds
-        elif isinstance(prompt_embeds_obj, tuple) and len(prompt_embeds_obj) >= 1: # Basic embed, possibly pooled as second element
-            generation_kwargs["prompt_embeds"] = prompt_embeds_obj[0]
-            if len(prompt_embeds_obj) > 1 and prompt_embeds_obj[1] is not None: # Check for pooled
-                generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_obj[1]
-        elif isinstance(prompt_embeds_obj, dict):
-            generation_kwargs["prompt_embeds"] = prompt_embeds_obj.get("prompt_embeds")
-            if "pooled_prompt_embeds" in prompt_embeds_obj:
-                generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_obj.get("pooled_prompt_embeds")
-        else:
-            raise ValueError("Unsupported output format from pipeline.encode_prompt() for positive prompt")
-
-        # Unpack negative embeddings
-        if hasattr(negative_prompt_embeds_obj, 'prompt_embeds'):
-            generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_obj.prompt_embeds
-            if hasattr(negative_prompt_embeds_obj, 'pooled_prompt_embeds'): # FLUX uses pooled
-                 generation_kwargs["negative_pooled_prompt_embeds"] = negative_prompt_embeds_obj.pooled_prompt_embeds
-        elif isinstance(negative_prompt_embeds_obj, tuple) and len(negative_prompt_embeds_obj) >=1:
-            generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_obj[0]
-            if len(negative_prompt_embeds_obj) > 1 and negative_prompt_embeds_obj[1] is not None:
-                generation_kwargs["negative_pooled_prompt_embeds"] = negative_prompt_embeds_obj[1]
-        elif isinstance(negative_prompt_embeds_obj, dict):
-            generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_obj.get("prompt_embeds")
-            if "pooled_prompt_embeds" in negative_prompt_embeds_obj: # Note: key might be just 'pooled_prompt_embeds' from encode
-                generation_kwargs["negative_pooled_prompt_embeds"] = negative_prompt_embeds_obj.get("pooled_prompt_embeds")
-        else:
-            raise ValueError("Unsupported output format from pipeline.encode_prompt() for negative prompt")
-
+        print(f"💾 GPU Memory after moving embeddings to GPU: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
         print("✅ Embeddings successfully generated and assigned.")
 
     except torch.cuda.OutOfMemoryError as oom_error:
@@ -809,67 +842,97 @@ def image_to_image(params: dict) -> list:
             torch.cuda.empty_cache()
             print(f"💾 GPU Memory before img2img encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
-        # Encode positive prompt with memory management
-        print("🔤 Encoding positive prompt for img2img...")
-        prompt_embeds_obj = img2img_pipe.encode_prompt(
-            prompt=prompt,
-            prompt_2=prompt, # Added for FLUX dual encoder
-            device=device,
-            num_images_per_prompt=1
-        )
+        # Try to move text encoders to CPU temporarily to save GPU memory during encoding
+        text_encoder_device = None
+        text_encoder_2_device = None
         
-        # Clear cache after positive encoding
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            print(f"💾 GPU Memory after positive img2img encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+        try:
+            # Store original devices and move text encoders to CPU
+            if hasattr(img2img_pipe, 'text_encoder') and img2img_pipe.text_encoder is not None:
+                text_encoder_device = next(img2img_pipe.text_encoder.parameters()).device
+                if str(text_encoder_device) != 'cpu':
+                    print("📦 Moving img2img text_encoder to CPU temporarily...")
+                    img2img_pipe.text_encoder.to('cpu')
+                    torch.cuda.empty_cache()
+                    
+            if hasattr(img2img_pipe, 'text_encoder_2') and img2img_pipe.text_encoder_2 is not None:
+                text_encoder_2_device = next(img2img_pipe.text_encoder_2.parameters()).device
+                if str(text_encoder_2_device) != 'cpu':
+                    print("📦 Moving img2img text_encoder_2 to CPU temporarily...")
+                    img2img_pipe.text_encoder_2.to('cpu')
+                    torch.cuda.empty_cache()
+                    print(f"💾 GPU Memory after moving img2img encoders to CPU: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
-        # Encode negative prompt with memory management
-        print("🔤 Encoding negative prompt for img2img...")
-        current_negative_prompt = negative_prompt if negative_prompt else ""
-        negative_prompt_embeds_obj = img2img_pipe.encode_prompt(
-            prompt=current_negative_prompt,
-            prompt_2=current_negative_prompt, # Added for FLUX dual encoder
-            device=device,
-            num_images_per_prompt=1
-        )
+            # Encode positive prompt with memory management
+            print("🔤 Encoding positive prompt for img2img...")
+            with torch.cuda.amp.autocast(enabled=False):
+                prompt_embeds_obj = img2img_pipe.encode_prompt(
+                    prompt=prompt,
+                    prompt_2=prompt, # Added for FLUX dual encoder
+                    device=device,
+                    num_images_per_prompt=1
+                )
+            
+            # Force move embeddings to CPU immediately
+            if hasattr(prompt_embeds_obj, 'prompt_embeds'):
+                prompt_embeds_cpu = prompt_embeds_obj.prompt_embeds.cpu()
+                pooled_prompt_embeds_cpu = prompt_embeds_obj.pooled_prompt_embeds.cpu() if hasattr(prompt_embeds_obj, 'pooled_prompt_embeds') else None
+            else:
+                prompt_embeds_cpu = prompt_embeds_obj[0].cpu() if isinstance(prompt_embeds_obj, tuple) else None
+                pooled_prompt_embeds_cpu = prompt_embeds_obj[1].cpu() if isinstance(prompt_embeds_obj, tuple) and len(prompt_embeds_obj) > 1 else None
+            
+            # Clear cache after positive encoding
+            torch.cuda.empty_cache()
+            print(f"💾 GPU Memory after positive img2img encoding (moved to CPU): {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+
+            # Encode negative prompt with memory management
+            print("🔤 Encoding negative prompt for img2img...")
+            current_negative_prompt = negative_prompt if negative_prompt else ""
+            with torch.cuda.amp.autocast(enabled=False):
+                negative_prompt_embeds_obj = img2img_pipe.encode_prompt(
+                    prompt=current_negative_prompt,
+                    prompt_2=current_negative_prompt, # Added for FLUX dual encoder
+                    device=device,
+                    num_images_per_prompt=1
+                )
+            
+            # Force move negative embeddings to CPU immediately
+            if hasattr(negative_prompt_embeds_obj, 'prompt_embeds'):
+                negative_prompt_embeds_cpu = negative_prompt_embeds_obj.prompt_embeds.cpu()
+                negative_pooled_prompt_embeds_cpu = negative_prompt_embeds_obj.pooled_prompt_embeds.cpu() if hasattr(negative_prompt_embeds_obj, 'pooled_prompt_embeds') else None
+            else:
+                negative_prompt_embeds_cpu = negative_prompt_embeds_obj[0].cpu() if isinstance(negative_prompt_embeds_obj, tuple) else None
+                negative_pooled_prompt_embeds_cpu = negative_prompt_embeds_obj[1].cpu() if isinstance(negative_prompt_embeds_obj, tuple) and len(negative_prompt_embeds_obj) > 1 else None
+            
+            # Clear cache after negative encoding
+            torch.cuda.empty_cache()
+            print(f"💾 GPU Memory after negative img2img encoding (moved to CPU): {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+            
+        finally:
+            # Restore text encoders to original devices
+            if text_encoder_device is not None and hasattr(img2img_pipe, 'text_encoder') and img2img_pipe.text_encoder is not None:
+                print(f"📦 Restoring img2img text_encoder to {text_encoder_device}...")
+                img2img_pipe.text_encoder.to(text_encoder_device)
+                
+            if text_encoder_2_device is not None and hasattr(img2img_pipe, 'text_encoder_2') and img2img_pipe.text_encoder_2 is not None:
+                print(f"📦 Restoring img2img text_encoder_2 to {text_encoder_2_device}...")
+                img2img_pipe.text_encoder_2.to(text_encoder_2_device)
+                
+            torch.cuda.empty_cache()
+
+        # Now move embeddings back to GPU and assign to generation_kwargs
+        print("🚀 Moving img2img embeddings back to GPU for generation...")
         
-        # Clear cache after negative encoding
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            print(f"💾 GPU Memory after negative img2img encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+        # Move embeddings back to GPU when needed
+        generation_kwargs["prompt_embeds"] = prompt_embeds_cpu.to(device)
+        generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_cpu.to(device)
+        
+        if pooled_prompt_embeds_cpu is not None:
+            generation_kwargs["pooled_prompt_embeds"] = pooled_prompt_embeds_cpu.to(device)
+        if negative_pooled_prompt_embeds_cpu is not None:
+            generation_kwargs["negative_pooled_prompt_embeds"] = negative_pooled_prompt_embeds_cpu.to(device)
 
-        # Unpack positive embeddings
-        if hasattr(prompt_embeds_obj, 'prompt_embeds'):
-            generation_kwargs["prompt_embeds"] = prompt_embeds_obj.prompt_embeds
-            if hasattr(prompt_embeds_obj, 'pooled_prompt_embeds'):
-                 generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_obj.pooled_prompt_embeds
-        elif isinstance(prompt_embeds_obj, tuple) and len(prompt_embeds_obj) >= 1:
-            generation_kwargs["prompt_embeds"] = prompt_embeds_obj[0]
-            if len(prompt_embeds_obj) > 1 and prompt_embeds_obj[1] is not None:
-                generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_obj[1]
-        elif isinstance(prompt_embeds_obj, dict):
-            generation_kwargs["prompt_embeds"] = prompt_embeds_obj.get("prompt_embeds")
-            if "pooled_prompt_embeds" in prompt_embeds_obj:
-                generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_obj.get("pooled_prompt_embeds")
-        else:
-            raise ValueError("Unsupported output format from Img2Img pipeline.encode_prompt() for positive prompt")
-
-        # Unpack negative embeddings
-        if hasattr(negative_prompt_embeds_obj, 'prompt_embeds'):
-            generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_obj.prompt_embeds
-            if hasattr(negative_prompt_embeds_obj, 'pooled_prompt_embeds'):
-                 generation_kwargs["negative_pooled_prompt_embeds"] = negative_prompt_embeds_obj.pooled_prompt_embeds
-        elif isinstance(negative_prompt_embeds_obj, tuple) and len(negative_prompt_embeds_obj) >= 1:
-            generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_obj[0]
-            if len(negative_prompt_embeds_obj) > 1 and negative_prompt_embeds_obj[1] is not None:
-                generation_kwargs["negative_pooled_prompt_embeds"] = negative_prompt_embeds_obj[1]
-        elif isinstance(negative_prompt_embeds_obj, dict):
-            generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_obj.get("prompt_embeds")
-            if "pooled_prompt_embeds" in negative_prompt_embeds_obj:
-                generation_kwargs["negative_pooled_prompt_embeds"] = negative_prompt_embeds_obj.get("pooled_prompt_embeds")
-        else:
-            raise ValueError("Unsupported output format from Img2Img pipeline.encode_prompt() for negative prompt")
-
+        print(f"💾 GPU Memory after moving img2img embeddings to GPU: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
         print("✅ Img2Img Embeddings successfully generated and assigned.")
 
     except torch.cuda.OutOfMemoryError as oom_error:
