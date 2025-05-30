@@ -81,8 +81,8 @@ BASE_MODELS = {
     "realistic": {
         "name": "真人风格",
         "path": "/runpod-volume/flux_base",
-        "lora_path": "/runpod-volume/lora/flux_nsfw",
-        "lora_id": "flux_nsfw",
+        "lora_path": "/runpod-volume/lora/flux_nsfw/flux_lustly-ai_v1.safetensors",  # 修正文件名
+        "lora_id": "flux_nsfw", 
         "model_type": "flux"
     },
     "anime": {
@@ -332,8 +332,26 @@ def load_specific_model(base_model_type: str):
             try:
                 # 🎯 针对不同模型类型使用不同的LoRA加载策略
                 if model_type == "flux":
-                    # FLUX模型使用标准LoRA加载
-                    txt2img_pipe.load_lora_weights(default_lora_path)
+                    # FLUX模型使用HuggingFace推荐的LoRA加载方式
+                    # 参考: https://huggingface.co/lustlyai/Flux_Lustly.ai_Uncensored_nsfw_v1
+                    try:
+                        if os.path.isfile(default_lora_path):
+                            # 直接加载.safetensors文件
+                            txt2img_pipe.load_lora_weights(
+                                os.path.dirname(default_lora_path),
+                                weight_name=os.path.basename(default_lora_path),
+                                adapter_name="v1"
+                            )
+                            txt2img_pipe.set_adapters(["v1"], adapter_weights=[1.0])
+                        else:
+                            # 加载目录形式的LoRA
+                            txt2img_pipe.load_lora_weights(default_lora_path, adapter_name="v1")
+                            txt2img_pipe.set_adapters(["v1"], adapter_weights=[1.0])
+                    except Exception as flux_lora_error:
+                        print(f"⚠️  FLUX LoRA加载失败: {flux_lora_error}")
+                        print("ℹ️  尝试备用加载方式...")
+                        txt2img_pipe.load_lora_weights(default_lora_path)
+                        
                 elif model_type == "diffusers":
                     # 🚨 动漫模型（diffusers）的LoRA兼容性问题处理
                     # 检查LoRA是否与当前模型兼容
@@ -928,41 +946,59 @@ def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, hei
     
     # 🎯 模型特定参数优化
     if model_type == "flux":
-        # FLUX模型参数优化 - 确保使用正确的参数范围
-        if cfg_scale < 0.5:
-            print(f"⚠️  FLUX CFG过低 ({cfg_scale})，调整为1.0")
-            cfg_scale = 1.0
-        elif cfg_scale > 3.0:
-            print(f"⚠️  FLUX CFG过高 ({cfg_scale})，调整为3.0")
-            cfg_scale = 3.0
+        # FLUX模型参数优化 - 根据官方推荐 https://huggingface.co/lustlyai/Flux_Lustly.ai_Uncensored_nsfw_v1
+        # 官方推荐: guidance_scale=4, steps=20, 768x768分辨率
+        
+        if cfg_scale < 3.0:
+            print(f"⚠️  FLUX CFG过低 ({cfg_scale})，调整为4.0 (官方推荐)")
+            cfg_scale = 4.0
+        elif cfg_scale > 6.0:
+            print(f"⚠️  FLUX CFG过高 ({cfg_scale})，调整为4.0 (官方推荐)")
+            cfg_scale = 4.0
             
-        if steps < 8:
-            print(f"⚠️  FLUX steps过低 ({steps})，调整为12")
-            steps = 12
-        elif steps > 20:
-            print(f"⚠️  FLUX steps过高 ({steps})，调整为20")
+        if steps < 15:
+            print(f"⚠️  FLUX steps过低 ({steps})，调整为20 (官方推荐)")
+            steps = 20
+        elif steps > 30:
+            print(f"⚠️  FLUX steps过高 ({steps})，调整为20 (官方推荐)")
             steps = 20
             
-        print(f"🔧 FLUX优化参数: steps={steps}, cfg_scale={cfg_scale}")
+        # 推荐768x768分辨率以获得更好质量
+        if width == 1024 and height == 1024:
+            print("💡 FLUX推荐768x768分辨率以获得更好质量")
+            width = 768
+            height = 768
+            
+        print(f"🔧 FLUX优化参数(官方推荐): steps={steps}, cfg_scale={cfg_scale}, size={width}x{height}")
         return generate_flux_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model)
         
     elif model_type == "diffusers":
-        # 动漫模型参数优化
-        if cfg_scale < 1.0:
-            print(f"⚠️  动漫模型CFG过低 ({cfg_scale})，调整为7.0")
+        # 动漫模型参数优化 - 根据CivitAI官方推荐
+        # WAI-NSFW-illustrious-SDXL推荐: Steps: 15-30, CFG scale: 5-7, 1024x1024以上
+        
+        if cfg_scale < 5.0:
+            print(f"⚠️  动漫模型CFG过低 ({cfg_scale})，调整为6.0 (官方推荐5-7)")
+            cfg_scale = 6.0
+        elif cfg_scale > 8.0:
+            print(f"⚠️  动漫模型CFG过高 ({cfg_scale})，调整为7.0 (官方推荐5-7)")
             cfg_scale = 7.0
-        elif cfg_scale > 20.0:
-            print(f"⚠️  动漫模型CFG过高 ({cfg_scale})，调整为15.0")
-            cfg_scale = 15.0
             
-        if steps < 10:
-            print(f"⚠️  动漫模型steps过低 ({steps})，调整为20")
+        if steps < 15:
+            print(f"⚠️  动漫模型steps过低 ({steps})，调整为20 (官方推荐15-30)")
             steps = 20
-        elif steps > 50:
-            print(f"⚠️  动漫模型steps过高 ({steps})，调整为50")
-            steps = 50
+        elif steps > 35:
+            print(f"⚠️  动漫模型steps过高 ({steps})，调整为30 (官方推荐15-30)")
+            steps = 30
             
-        print(f"🔧 动漫模型优化参数: steps={steps}, cfg_scale={cfg_scale}")
+        # 确保使用1024x1024以上分辨率
+        if width < 1024 or height < 1024:
+            print("💡 动漫模型推荐1024x1024以上分辨率")
+            if width < 1024:
+                width = 1024
+            if height < 1024:
+                height = 1024
+            
+        print(f"🔧 动漫模型优化参数(CivitAI推荐): steps={steps}, cfg_scale={cfg_scale}, size={width}x{height}")
         return generate_diffusers_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model)
     else:
         raise ValueError(f"Unsupported model type: {model_type}")

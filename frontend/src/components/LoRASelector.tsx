@@ -43,6 +43,7 @@ const STATIC_LORAS = {
 export default function LoRASelector({ value, onChange, baseModel, disabled = false }: LoRASelectorProps) {
   const [selectedLoRA, setSelectedLoRA] = useState<LoRAOption | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   // 获取当前基础模型的LoRA列表
   const availableLoras = STATIC_LORAS[baseModel] || []
@@ -65,34 +66,28 @@ export default function LoRASelector({ value, onChange, baseModel, disabled = fa
     }
   }, [baseModel])
 
-  const handleLoRAChange = async (lora: LoRAOption) => {
-    if (disabled || isLoading) return
-
-    setIsLoading(true)
+  const handleLoRAChange = async (lora: LoRAOption | null) => {
+    if (!lora || selectedLoRA?.id === lora.id) return;
+    
+    setIsLoading(true);
+    setError('');
+    
     try {
-      // 调用后端切换LoRA
-      const response = await fetch('/api/loras/switch-single', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          lora_id: lora.id
-        }),
-      })
-
-      if (response.ok) {
-        setSelectedLoRA(lora)
-        onChange({ [lora.id]: 1.0 })
-      } else {
-        console.error('Failed to switch LoRA:', await response.text())
-      }
+      // 🎯 前端立即更新选中状态，不等待后端验证
+      setSelectedLoRA(lora);
+      onChange({ [lora.id]: 1.0 });
+      
+      // 💡 只在前端显示选择，生图时再进行后端验证和切换
+      console.log(`LoRA选择已更新: ${lora.id} (将在生图时应用)`);
+      
     } catch (error) {
-      console.error('Error switching LoRA:', error)
+      console.error('LoRA selection error:', error);
+      // 发生错误时也不回退选择，让用户在生图时再处理
+      setError(`LoRA选择: ${lora.id} (将在生图时验证)`);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   if (availableLoras.length === 0) {
     return (
