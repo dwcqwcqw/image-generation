@@ -417,22 +417,12 @@ def upload_to_r2(image_data: bytes, filename: str) -> str:
             public_url = f"{CLOUDFLARE_R2_PUBLIC_DOMAIN.rstrip('/')}/{filename}"
             print(f"✓ Successfully uploaded to (custom domain): {public_url}")
         else:
-            # 使用新的 R2 公共 URL 格式（避免认证问题）
-            # 从endpoint URL中提取account ID来构造public URL
+            # 回退到标准R2格式
+            # 正确格式: https://{bucket}.{account_id}.r2.cloudflarestorage.com/{filename}
+            # 从endpoint URL中提取account ID
             account_id = CLOUDFLARE_R2_ENDPOINT.split('//')[1].split('.')[0]
-            
-            # 首先尝试使用 R2 public domain 格式 (如果设置了)
-            if os.getenv("CLOUDFLARE_R2_PUBLIC_BUCKET_DOMAIN"):
-                public_url = f"https://{os.getenv('CLOUDFLARE_R2_PUBLIC_BUCKET_DOMAIN')}/{filename}"
-                print(f"✓ Successfully uploaded to (R2 public domain): {public_url}")
-            else:
-                # 回退到标准格式但添加public access支持
-                public_url = f"https://{CLOUDFLARE_R2_BUCKET}.{account_id}.r2.cloudflarestorage.com/{filename}"
-                print(f"✓ Successfully uploaded to (standard R2): {public_url}")
-                print(f"⚠️  注意：如果出现CORS或认证错误，请在Cloudflare Dashboard中：")
-                print(f"    1. 启用R2存储桶的Public Access")
-                print(f"    2. 设置正确的CORS策略")
-                print(f"    3. 或设置环境变量 CLOUDFLARE_R2_PUBLIC_BUCKET_DOMAIN")
+            public_url = f"https://{CLOUDFLARE_R2_BUCKET}.{account_id}.r2.cloudflarestorage.com/{filename}"
+            print(f"✓ Successfully uploaded to (standard R2): {public_url}")
         
         return public_url
         
