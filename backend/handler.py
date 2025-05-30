@@ -538,71 +538,57 @@ def text_to_image(params: dict) -> list:
     # Generate embeds using the pipeline's own encoder for robustness
     print("🧬 Generating prompt embeddings using pipeline.encode_prompt()...")
     try:
-        # Ensure the pipeline is on the correct device before encoding
         device = get_device()
-        # txt2img_pipe.to(device) # Usually done at load time, but good to be sure if issues arise
 
-        prompt_embeds_out = txt2img_pipe.encode_prompt(
+        # Encode positive prompt
+        prompt_embeds_obj = txt2img_pipe.encode_prompt(
             prompt=prompt,
-            negative_prompt=negative_prompt,
             device=device,
             num_images_per_prompt=1, # Encode for a single image initially
-            do_classifier_free_guidance=cfg_scale > 1.0, # Common practice
-            # Any other FLUX specific args for encode_prompt can be added here
+            do_classifier_free_guidance=cfg_scale > 1.0, # Still relevant for how embeds might be used/conditioned
         )
 
-        # FluxPipeline.encode_prompt typically returns: 
-        # (prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds)
-        # Newer diffusers might return a dataclass or dict.
-        # Let's assume tuple output for now, and adjust if it's a class/dict by accessing its attributes.
-        # Expected output structure for FluxPipeline:
-        # prompt_embeds: main conditionings from T1+T2
-        # negative_prompt_embeds: negative main conditionings from T1+T2
-        # pooled_prompt_embeds: pooled positive output (usually from T2)
-        # negative_pooled_prompt_embeds: pooled negative output (usually from T2)
-        
-        # Unpack the outputs. The exact names depend on the diffusers version and FluxPipeline implementation.
-        # Common names are prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds
-        # Some pipelines might return a PromptOutput dataclass.
-        # For FLUX, it often returns prompt_embeds, text_embeds_2, pooled_text_embeds (and their negative counterparts)
-        # Let's check typical Flux/SDXL output of encode_prompt.
-        # It is usually: `prompt_embeds`, `negative_prompt_embeds`, `pooled_prompt_embeds`, `negative_pooled_prompt_embeds`
-        # Let's assume these are the keys if it's a dict, or attributes if it's an object.
-        # If it's a tuple, the order matters.
+        # Encode negative prompt
+        # Note: Some encode_prompt versions might not need do_classifier_free_guidance for negative prompts
+        # or expect it to be False. For safety, keeping it consistent or specific to positive.
+        negative_prompt_embeds_obj = txt2img_pipe.encode_prompt(
+            prompt=negative_prompt if negative_prompt else "", # Pass empty string if no negative prompt
+            device=device,
+            num_images_per_prompt=1,
+            do_classifier_free_guidance=cfg_scale > 1.0, # Or False, depending on pipeline requirements
+        )
 
-        # Assuming prompt_embeds_out is an object with attributes:
-        if hasattr(prompt_embeds_out, 'prompt_embeds'): # Diffusers >= 0.1 embeds_utils.PromptOutput
-            generation_kwargs["prompt_embeds"] = prompt_embeds_out.prompt_embeds
-            generation_kwargs["negative_prompt_embeds"] = prompt_embeds_out.negative_prompt_embeds
-            generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_out.pooled_prompt_embeds
-            generation_kwargs["negative_pooled_prompt_embeds"] = prompt_embeds_out.negative_pooled_prompt_embeds
-        elif isinstance(prompt_embeds_out, tuple) and len(prompt_embeds_out) == 4: # Older diffusers might return a tuple
-            generation_kwargs["prompt_embeds"] = prompt_embeds_out[0]
-            generation_kwargs["negative_prompt_embeds"] = prompt_embeds_out[1]
-            generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_out[2]
-            generation_kwargs["negative_pooled_prompt_embeds"] = prompt_embeds_out[3]
+        # Unpack positive embeddings
+        if hasattr(prompt_embeds_obj, 'prompt_embeds'):
+            generation_kwargs["prompt_embeds"] = prompt_embeds_obj.prompt_embeds
+            if hasattr(prompt_embeds_obj, 'pooled_prompt_embeds'): # FLUX uses pooled
+                 generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_obj.pooled_prompt_embeds
+        elif isinstance(prompt_embeds_obj, tuple) and len(prompt_embeds_obj) >= 1: # Basic embed, possibly pooled as second element
+            generation_kwargs["prompt_embeds"] = prompt_embeds_obj[0]
+            if len(prompt_embeds_obj) > 1 and prompt_embeds_obj[1] is not None: # Check for pooled
+                generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_obj[1]
+        elif isinstance(prompt_embeds_obj, dict):
+            generation_kwargs["prompt_embeds"] = prompt_embeds_obj.get("prompt_embeds")
+            if "pooled_prompt_embeds" in prompt_embeds_obj:
+                generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_obj.get("pooled_prompt_embeds")
         else:
-            # Fallback or if the structure is different (e.g. specific to FLUX internal naming)
-            # FLUX might use: prompt_embeds (combined), text_embeds_2_unpooled, pooled_embeds
-            # For now, this generic unpacking should cover common cases.
-            # If specific FLUX names are needed, they would replace the keys above.
-            # For example, if encode_prompt returns (prompt_embeds, text_embeds_2_norm, pooled_embeds, neg_prompt_embeds, neg_text_embeds_2_norm, neg_pooled_embeds)
-            # The assignment would need to match that structure.
-            # The key is that `encode_prompt` handles the complexity.
-            print("⚠️ Unexpected output structure from encode_prompt. Attempting generic assignment.")
-            # This might need to be more specific based on the exact return of your FluxPipeline.encode_prompt
-            # Defaulting to a common structure for SDXL-like models. FLUX might be similar.
-            # prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds
-            # Let's assume this is the primary set of arguments the pipeline will look for.
-            # If the pipeline call later fails due to missing specific FLUX embedding names, this section will need adjustment.
-            # The most common signature for SDXL/Flux type models when calling the pipe with pre-encoded embeds is:
-            # pipe(prompt_embeds=..., negative_prompt_embeds=..., pooled_prompt_embeds=..., negative_pooled_prompt_embeds=...)
-            # So, the keys above should be correct.
-            # If `encode_prompt` returns a dict: generation_kwargs.update(prompt_embeds_out)
-            if isinstance(prompt_embeds_out, dict):
-                 generation_kwargs.update(prompt_embeds_out)
-            else:
-                raise ValueError("Unsupported output format from pipeline.encode_prompt()")
+            raise ValueError("Unsupported output format from pipeline.encode_prompt() for positive prompt")
+
+        # Unpack negative embeddings
+        if hasattr(negative_prompt_embeds_obj, 'prompt_embeds'):
+            generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_obj.prompt_embeds
+            if hasattr(negative_prompt_embeds_obj, 'pooled_prompt_embeds'): # FLUX uses pooled
+                 generation_kwargs["negative_pooled_prompt_embeds"] = negative_prompt_embeds_obj.pooled_prompt_embeds
+        elif isinstance(negative_prompt_embeds_obj, tuple) and len(negative_prompt_embeds_obj) >=1:
+            generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_obj[0]
+            if len(negative_prompt_embeds_obj) > 1 and negative_prompt_embeds_obj[1] is not None:
+                generation_kwargs["negative_pooled_prompt_embeds"] = negative_prompt_embeds_obj[1]
+        elif isinstance(negative_prompt_embeds_obj, dict):
+            generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_obj.get("prompt_embeds")
+            if "pooled_prompt_embeds" in negative_prompt_embeds_obj: # Note: key might be just 'pooled_prompt_embeds' from encode
+                generation_kwargs["negative_pooled_prompt_embeds"] = negative_prompt_embeds_obj.get("pooled_prompt_embeds")
+        else:
+            raise ValueError("Unsupported output format from pipeline.encode_prompt() for negative prompt")
 
         print("✅ Embeddings successfully generated and assigned.")
 
@@ -784,29 +770,54 @@ def image_to_image(params: dict) -> list:
     print("🧬 Generating prompt embeddings for Img2Img using pipeline.encode_prompt()...")
     try:
         device = get_device()
-        prompt_embeds_out = img2img_pipe.encode_prompt(
+
+        # Encode positive prompt
+        prompt_embeds_obj = img2img_pipe.encode_prompt(
             prompt=prompt,
-            negative_prompt=negative_prompt,
             device=device,
             num_images_per_prompt=1,
             do_classifier_free_guidance=cfg_scale > 1.0,
         )
 
-        if hasattr(prompt_embeds_out, 'prompt_embeds'): # Diffusers >= 0.1 embeds_utils.PromptOutput
-            generation_kwargs["prompt_embeds"] = prompt_embeds_out.prompt_embeds
-            generation_kwargs["negative_prompt_embeds"] = prompt_embeds_out.negative_prompt_embeds
-            generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_out.pooled_prompt_embeds
-            generation_kwargs["negative_pooled_prompt_embeds"] = prompt_embeds_out.negative_pooled_prompt_embeds
-        elif isinstance(prompt_embeds_out, tuple) and len(prompt_embeds_out) == 4:
-            generation_kwargs["prompt_embeds"] = prompt_embeds_out[0]
-            generation_kwargs["negative_prompt_embeds"] = prompt_embeds_out[1]
-            generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_out[2]
-            generation_kwargs["negative_pooled_prompt_embeds"] = prompt_embeds_out[3]
+        # Encode negative prompt
+        negative_prompt_embeds_obj = img2img_pipe.encode_prompt(
+            prompt=negative_prompt if negative_prompt else "",
+            device=device,
+            num_images_per_prompt=1,
+            do_classifier_free_guidance=cfg_scale > 1.0, # Or False
+        )
+
+        # Unpack positive embeddings
+        if hasattr(prompt_embeds_obj, 'prompt_embeds'):
+            generation_kwargs["prompt_embeds"] = prompt_embeds_obj.prompt_embeds
+            if hasattr(prompt_embeds_obj, 'pooled_prompt_embeds'):
+                 generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_obj.pooled_prompt_embeds
+        elif isinstance(prompt_embeds_obj, tuple) and len(prompt_embeds_obj) >= 1:
+            generation_kwargs["prompt_embeds"] = prompt_embeds_obj[0]
+            if len(prompt_embeds_obj) > 1 and prompt_embeds_obj[1] is not None:
+                generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_obj[1]
+        elif isinstance(prompt_embeds_obj, dict):
+            generation_kwargs["prompt_embeds"] = prompt_embeds_obj.get("prompt_embeds")
+            if "pooled_prompt_embeds" in prompt_embeds_obj:
+                generation_kwargs["pooled_prompt_embeds"] = prompt_embeds_obj.get("pooled_prompt_embeds")
         else:
-            if isinstance(prompt_embeds_out, dict):
-                 generation_kwargs.update(prompt_embeds_out)
-            else:
-                raise ValueError("Unsupported output format from Img2Img pipeline.encode_prompt()")
+            raise ValueError("Unsupported output format from Img2Img pipeline.encode_prompt() for positive prompt")
+
+        # Unpack negative embeddings
+        if hasattr(negative_prompt_embeds_obj, 'prompt_embeds'):
+            generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_obj.prompt_embeds
+            if hasattr(negative_prompt_embeds_obj, 'pooled_prompt_embeds'):
+                 generation_kwargs["negative_pooled_prompt_embeds"] = negative_prompt_embeds_obj.pooled_prompt_embeds
+        elif isinstance(negative_prompt_embeds_obj, tuple) and len(negative_prompt_embeds_obj) >= 1:
+            generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_obj[0]
+            if len(negative_prompt_embeds_obj) > 1 and negative_prompt_embeds_obj[1] is not None:
+                generation_kwargs["negative_pooled_prompt_embeds"] = negative_prompt_embeds_obj[1]
+        elif isinstance(negative_prompt_embeds_obj, dict):
+            generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_obj.get("prompt_embeds")
+            if "pooled_prompt_embeds" in negative_prompt_embeds_obj:
+                generation_kwargs["negative_pooled_prompt_embeds"] = negative_prompt_embeds_obj.get("pooled_prompt_embeds")
+        else:
+            raise ValueError("Unsupported output format from Img2Img pipeline.encode_prompt() for negative prompt")
 
         print("✅ Img2Img Embeddings successfully generated and assigned.")
 
