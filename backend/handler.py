@@ -686,7 +686,7 @@ def text_to_image(params: dict) -> list:
         # Now move embeddings back to GPU and assign to generation_kwargs
         print("🚀 Moving embeddings back to GPU for generation...")
         
-        # Move embeddings back to GPU when needed
+        # Move embeddings back to GPU when needed  
         generation_kwargs["prompt_embeds"] = prompt_embeds_cpu.to(device)
         # ❌ FLUX不支持negative_prompt_embeds参数，移除
         # generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_cpu.to(device)
@@ -697,16 +697,11 @@ def text_to_image(params: dict) -> list:
         # if negative_pooled_prompt_embeds_cpu is not None:
         #     generation_kwargs["negative_pooled_prompt_embeds"] = negative_pooled_prompt_embeds_cpu.to(device)
 
-        # 🎯 对于FLUX，使用true_cfg_scale来处理负提示词（如果需要的话）
-        if negative_prompt and negative_prompt.strip():
-            print("🔥 Using true_cfg_scale for negative prompt handling in FLUX")
-            generation_kwargs["true_cfg_scale"] = 4.0  # 推荐值：1.0-7.0
-            generation_kwargs["negative_prompt"] = negative_prompt  # 传递原始负提示词
-        else:
-            generation_kwargs["true_cfg_scale"] = 1.0  # 默认值，不使用CFG
-
-        print(f"💾 GPU Memory after moving embeddings to GPU: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
-        print("✅ Embeddings successfully generated and assigned.")
+        # FLUX使用传统的guidance_scale参数
+        generation_kwargs["guidance_scale"] = cfg_scale
+        print(f"🎛️ Using guidance_scale: {cfg_scale}")
+            
+        print(f"💾 GPU Memory before generation: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
     except torch.cuda.OutOfMemoryError as oom_error:
         print(f"❌ CUDA Out of Memory during encode_prompt: {oom_error}")
@@ -994,16 +989,11 @@ def image_to_image(params: dict) -> list:
         # if negative_pooled_prompt_embeds_cpu is not None:
         #     generation_kwargs["negative_pooled_prompt_embeds"] = negative_pooled_prompt_embeds_cpu.to(device)
 
-        # 🎯 对于FLUX，使用true_cfg_scale来处理负提示词（如果需要的话）
-        if negative_prompt and negative_prompt.strip():
-            print("🔥 Using true_cfg_scale for negative prompt handling in img2img FLUX")
-            generation_kwargs["true_cfg_scale"] = 4.0  # 推荐值：1.0-7.0
-            generation_kwargs["negative_prompt"] = negative_prompt  # 传递原始负提示词
-        else:
-            generation_kwargs["true_cfg_scale"] = 1.0  # 默认值，不使用CFG
-
-        print(f"💾 GPU Memory after moving img2img embeddings to GPU: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
-        print("✅ Img2Img Embeddings successfully generated and assigned.")
+        # FLUX使用传统的guidance_scale参数
+        generation_kwargs["guidance_scale"] = cfg_scale
+        print(f"🎛️ Using guidance_scale: {cfg_scale}")
+            
+        print(f"💾 GPU Memory before generation: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
     except torch.cuda.OutOfMemoryError as oom_error:
         print(f"❌ CUDA Out of Memory during img2img encode_prompt: {oom_error}")
