@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import Image from 'next/image'
 import { Download, Eye, Copy, Trash2, RefreshCw, Archive, Clock } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import type { GeneratedImage } from '@/types'
@@ -179,12 +178,12 @@ export default function ImageGallery({
               )}
             </div>
 
-            <Image
+            {/* 使用原生img标签避免Next.js Image组件的URL重写问题 */}
+            <img
               src={getCloudflareImageUrl(image.url)}
               alt={image.prompt}
-              fill
-              className="object-cover transition-transform duration-300 group-hover:scale-105"
-              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+              className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+              loading="lazy"
               onError={(e) => {
                 console.error('Image load error for:', image.url)
                 debugImageUrl(image.url)
@@ -268,12 +267,11 @@ export default function ImageGallery({
               
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden">
-                  <Image
+                  <img
                     src={getCloudflareImageUrl(selectedImage.url)}
                     alt={selectedImage.prompt}
-                    fill
-                    className="object-cover"
-                    sizes="(max-width: 1024px) 100vw, 50vw"
+                    className="absolute inset-0 w-full h-full object-cover"
+                    loading="lazy"
                   />
                 </div>
                 
