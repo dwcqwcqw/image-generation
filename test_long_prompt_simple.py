@@ -21,7 +21,8 @@ def process_long_prompt(prompt: str, max_clip_tokens: int = 75, max_t5_tokens: i
     
     # 🎯 更准确的token估算：考虑标点符号和特殊字符
     # 简单分词：按空格、逗号、标点符号分割
-    tokens = re.findall(r'\w+|[^\w\s]', prompt.lower())
+    token_pattern = r'\w+|[^\w\s]'  # 提取regex模式避免f-string中的反斜杠
+    tokens = re.findall(token_pattern, prompt.lower())
     estimated_tokens = len(tokens)
     
     print(f"📏 Prompt analysis: {len(prompt)} chars, ~{estimated_tokens} tokens (improved estimation)")
@@ -42,7 +43,7 @@ def process_long_prompt(prompt: str, max_clip_tokens: int = 75, max_t5_tokens: i
             
             for word in words:
                 # 估算当前单词的token数（考虑标点符号）
-                word_tokens = len(re.findall(r'\w+|[^\w\s]', word.lower()))
+                word_tokens = len(re.findall(token_pattern, word.lower()))
                 
                 if current_tokens + word_tokens <= max_clip_tokens:
                     clip_words.append(word)
@@ -58,9 +59,10 @@ def process_long_prompt(prompt: str, max_clip_tokens: int = 75, max_t5_tokens: i
                         break
             
             clip_prompt = ' '.join(clip_words)
+            clip_token_count = len(re.findall(token_pattern, clip_prompt.lower()))
             
             print(f"📝 Long prompt optimization:")
-            print(f"   CLIP prompt: ~{len(clip_words)} words → {len(re.findall(r'\\w+|[^\\w\\s]', clip_prompt.lower()))} tokens (safe truncation)")
+            print(f"   CLIP prompt: ~{len(clip_words)} words → {clip_token_count} tokens (safe truncation)")
             print(f"   T5 prompt: ~{estimated_tokens} tokens (full prompt)")
             return clip_prompt, prompt
         else:
@@ -71,7 +73,7 @@ def process_long_prompt(prompt: str, max_clip_tokens: int = 75, max_t5_tokens: i
             clip_words = []
             current_tokens = 0
             for word in words:
-                word_tokens = len(re.findall(r'\\w+|[^\\w\\s]', word.lower()))
+                word_tokens = len(re.findall(token_pattern, word.lower()))
                 if current_tokens + word_tokens <= max_clip_tokens:
                     clip_words.append(word)
                     current_tokens += word_tokens
@@ -82,7 +84,7 @@ def process_long_prompt(prompt: str, max_clip_tokens: int = 75, max_t5_tokens: i
             t5_words = []
             current_tokens = 0
             for word in words:
-                word_tokens = len(re.findall(r'\\w+|[^\\w\\s]', word.lower()))
+                word_tokens = len(re.findall(token_pattern, word.lower()))
                 if current_tokens + word_tokens <= max_t5_tokens:
                     t5_words.append(word)
                     current_tokens += word_tokens
@@ -105,9 +107,12 @@ def process_long_prompt(prompt: str, max_clip_tokens: int = 75, max_t5_tokens: i
             clip_prompt = ' '.join(clip_words)
             t5_prompt = ' '.join(t5_words)
             
+            clip_token_count = len(re.findall(token_pattern, clip_prompt.lower()))
+            t5_token_count = len(re.findall(token_pattern, t5_prompt.lower()))
+            
             print(f"⚠️  Ultra-long prompt: both encoders truncated intelligently")
-            print(f"   CLIP prompt: ~{len(clip_words)} words → {len(re.findall(r'\\w+|[^\\w\\s]', clip_prompt.lower()))} tokens")
-            print(f"   T5 prompt: ~{len(t5_words)} words → {len(re.findall(r'\\w+|[^\\w\\s]', t5_prompt.lower()))} tokens")
+            print(f"   CLIP prompt: ~{len(clip_words)} words → {clip_token_count} tokens")
+            print(f"   T5 prompt: ~{len(t5_words)} words → {t5_token_count} tokens")
             return clip_prompt, t5_prompt
 
 def test_long_prompt_processing():
