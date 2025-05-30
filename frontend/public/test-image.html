@@ -38,7 +38,15 @@
         <h2>Test 3: Fetch Test</h2>
         <button onclick="testFetch()">Test Proxy Fetch</button>
         <button onclick="testDirectFetch()">Test Direct Fetch</button>
+        <button onclick="testR2Url()">Test R2 URL Validity</button>
         <pre id="result">Click buttons to test...</pre>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 4: Try Different URLs</h2>
+        <input type="text" id="custom-url" placeholder="Enter R2 URL to test" style="width: 100%; margin: 5px 0;">
+        <button onclick="testCustomUrl()">Test Custom URL</button>
+        <pre id="custom-result"></pre>
     </div>
     
     <script>
@@ -141,6 +149,62 @@ Headers: ${JSON.stringify(Object.fromEntries(response.headers), null, 2)}`;
                 const errorText = `DIRECT FETCH ERROR (Expected): ${error.message}`;
                 result.textContent = errorText;
                 console.log(errorText);
+            }
+        }
+        
+        async function testR2Url() {
+            const result = document.getElementById('result');
+            result.textContent = 'Testing R2 URL validity...';
+            
+            try {
+                const testR2Url = '/test-r2?url=' + encodeURIComponent(testUrl);
+                console.log('Testing R2 URL via:', testR2Url);
+                
+                const response = await fetch(testR2Url);
+                const resultData = await response.text();
+                
+                result.textContent = `R2 URL TEST RESULT:\n${resultData}`;
+                console.log('R2 URL test result:', response.status);
+                
+            } catch (error) {
+                const errorText = `R2 URL TEST ERROR: ${error.message}`;
+                result.textContent = errorText;
+                console.log(errorText);
+            }
+        }
+        
+        async function testCustomUrl() {
+            const customUrl = document.getElementById('custom-url').value;
+            const result = document.getElementById('custom-result');
+            
+            if (!customUrl) {
+                result.textContent = 'Please enter a URL to test';
+                return;
+            }
+            
+            result.textContent = 'Testing custom URL...';
+            
+            try {
+                // Test both proxy and direct
+                const proxyUrl = '/api/image-proxy?url=' + encodeURIComponent(customUrl);
+                const proxyResponse = await fetch(proxyUrl);
+                
+                const proxyResult = `CUSTOM URL PROXY TEST:
+URL: ${customUrl}
+Proxy Status: ${proxyResponse.status} ${proxyResponse.statusText}
+Headers: ${JSON.stringify(Object.fromEntries(proxyResponse.headers), null, 2)}`;
+                
+                result.textContent = proxyResult;
+                
+                // Also test with test-r2
+                const r2TestUrl = '/test-r2?url=' + encodeURIComponent(customUrl);
+                const r2Response = await fetch(r2TestUrl);
+                const r2Data = await r2Response.text();
+                
+                result.textContent += '\n\n' + r2Data;
+                
+            } catch (error) {
+                result.textContent = `CUSTOM URL TEST ERROR: ${error.message}`;
             }
         }
     </script>

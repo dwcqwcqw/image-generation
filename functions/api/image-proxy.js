@@ -48,7 +48,17 @@ export async function onRequest(context) {
 
     if (!response.ok) {
       console.log('ERROR: Fetch failed with status:', response.status);
-      throw new Error(`HTTP ${response.status}`);
+      
+      // Try to get response body for more details
+      let errorBody = '';
+      try {
+        errorBody = await response.text();
+        console.log('Error response body:', errorBody);
+      } catch (bodyError) {
+        console.log('Could not read error response body:', bodyError);
+      }
+      
+      throw new Error(`R2 responded with ${response.status} ${response.statusText}. Body: ${errorBody.substring(0, 200)}`);
     }
 
     const imageData = await response.arrayBuffer();
@@ -81,7 +91,8 @@ export async function onRequest(context) {
         ...corsHeaders, 
         'Content-Type': 'text/plain',
         'X-Proxy-Debug': 'failed',
-        'X-Error-Message': message
+        'X-Error-Message': message.substring(0, 100),
+        'X-Target-URL': targetUrl
       } 
     });
   }
