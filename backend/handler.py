@@ -224,11 +224,11 @@ def load_flux_model(base_path: str, device: str) -> tuple:
     return txt2img_pipe, img2img_pipe
 
 def load_diffusers_model(base_path: str, device: str) -> tuple:
-    """加载标准diffusers模型 - 修复Half精度问题"""
+    """加载标准diffusers模型 - 修复动漫模型兼容性"""
     print(f"🎨 Loading diffusers model from {base_path}")
     
-    # 强制使用float32精度以避免Half精度问题
-    torch_dtype = torch.float32  # 修复 LayerNormKernelImpl 错误
+    # 动漫模型使用float16以获得更好的性能
+    torch_dtype = torch.float16 if device == "cuda" else torch.float32
     
     try:
         # 加载主要文本到图像管道
@@ -236,7 +236,9 @@ def load_diffusers_model(base_path: str, device: str) -> tuple:
             base_path,
             torch_dtype=torch_dtype,
             use_safetensors=True,
-            variant="fp32"  # 强制使用fp32变体
+            safety_checker=None,  # 禁用安全检查器以避免兼容性问题
+            requires_safety_checker=False,
+            load_safety_checker=False
         ).to(device)
         
         # 优化内存使用
@@ -250,8 +252,9 @@ def load_diffusers_model(base_path: str, device: str) -> tuple:
             tokenizer=txt2img_pipeline.tokenizer,
             unet=txt2img_pipeline.unet,
             scheduler=txt2img_pipeline.scheduler,
-            safety_checker=txt2img_pipeline.safety_checker,
-            feature_extractor=txt2img_pipeline.feature_extractor,
+            safety_checker=None,  # 禁用安全检查器
+            feature_extractor=getattr(txt2img_pipeline, 'feature_extractor', None),
+            requires_safety_checker=False
         ).to(device)
         
         # 同样的优化
@@ -327,7 +330,21 @@ def load_specific_model(base_model_type: str):
         if os.path.exists(default_lora_path):
             print(f"🎨 Loading default LoRA for {model_config['name']}: {default_lora_path}")
             try:
-                txt2img_pipe.load_lora_weights(default_lora_path)
+                # 🎯 针对不同模型类型使用不同的LoRA加载策略
+                if model_type == "flux":
+                    # FLUX模型使用标准LoRA加载
+                    txt2img_pipe.load_lora_weights(default_lora_path)
+                elif model_type == "diffusers":
+                    # 🚨 动漫模型（diffusers）的LoRA兼容性问题处理
+                    # 检查LoRA是否与当前模型兼容
+                    try:
+                        txt2img_pipe.load_lora_weights(default_lora_path)
+                    except Exception as lora_error:
+                        print(f"⚠️  动漫模型LoRA不兼容: {lora_error}")
+                        print("ℹ️  这通常是因为LoRA模型的target_modules与基础模型不匹配")
+                        print("ℹ️  继续使用基础模型，不加载LoRA...")
+                        raise lora_error  # 重新抛出以触发下面的异常处理
+                        
                 lora_time = (datetime.now() - lora_start_time).total_seconds()
                 print(f"✅ LoRA loaded in {lora_time:.2f}s")
                 
@@ -709,7 +726,18 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
     # 动漫模型也支持长Prompt处理
     print(f"📝 Processing long prompts for anime model...")
     
+    # 确保prompt不为空
+    if not prompt or prompt.strip() == "":
+        prompt = "masterpiece, best quality, 1boy"
+    
+    # 确保negative_prompt不为None
+    if negative_prompt is None:
+        negative_prompt = ""
+    
     # 处理长Prompt - 使用Compel库来支持更长的tokens
+    prompt_embeds = None
+    negative_prompt_embeds = None
+    
     try:
         # 使用Compel处理长prompt
         global compel_proc, compel_proc_neg
@@ -728,7 +756,7 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
         prompt_embeds = compel_proc(prompt)
         
         # 处理负面prompt
-        if negative_prompt:
+        if negative_prompt and negative_prompt.strip():
             print(f"🔤 原始negative prompt长度: {len(negative_prompt)} 字符") 
             negative_prompt_embeds = compel_proc_neg(negative_prompt)
         else:
@@ -752,12 +780,12 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
     }
     
     # 使用prompt embeds如果可用，否则使用原始prompt
-    if prompt_embeds is not None:
+    if prompt_embeds is not None and negative_prompt_embeds is not None:
         generation_kwargs["prompt_embeds"] = prompt_embeds
         generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds
     else:
         generation_kwargs["prompt"] = prompt
-        generation_kwargs["negative_prompt"] = negative_prompt
+        generation_kwargs["negative_prompt"] = negative_prompt if negative_prompt else ""
     
     return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text_to_image")
 
@@ -898,10 +926,43 @@ def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, hei
     model_type = model_config["model_type"]
     print(f"🎨 使用 {model_type} 管道生成图像...")
     
-    # 根据模型类型调用相应的生成函数
+    # 🎯 模型特定参数优化
     if model_type == "flux":
+        # FLUX模型参数优化 - 确保使用正确的参数范围
+        if cfg_scale < 0.5:
+            print(f"⚠️  FLUX CFG过低 ({cfg_scale})，调整为1.0")
+            cfg_scale = 1.0
+        elif cfg_scale > 3.0:
+            print(f"⚠️  FLUX CFG过高 ({cfg_scale})，调整为3.0")
+            cfg_scale = 3.0
+            
+        if steps < 8:
+            print(f"⚠️  FLUX steps过低 ({steps})，调整为12")
+            steps = 12
+        elif steps > 20:
+            print(f"⚠️  FLUX steps过高 ({steps})，调整为20")
+            steps = 20
+            
+        print(f"🔧 FLUX优化参数: steps={steps}, cfg_scale={cfg_scale}")
         return generate_flux_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model)
+        
     elif model_type == "diffusers":
+        # 动漫模型参数优化
+        if cfg_scale < 1.0:
+            print(f"⚠️  动漫模型CFG过低 ({cfg_scale})，调整为7.0")
+            cfg_scale = 7.0
+        elif cfg_scale > 20.0:
+            print(f"⚠️  动漫模型CFG过高 ({cfg_scale})，调整为15.0")
+            cfg_scale = 15.0
+            
+        if steps < 10:
+            print(f"⚠️  动漫模型steps过低 ({steps})，调整为20")
+            steps = 20
+        elif steps > 50:
+            print(f"⚠️  动漫模型steps过高 ({steps})，调整为50")
+            steps = 50
+            
+        print(f"🔧 动漫模型优化参数: steps={steps}, cfg_scale={cfg_scale}")
         return generate_diffusers_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model)
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
@@ -1675,11 +1736,13 @@ def handler(job):
 LORA_SEARCH_PATHS = {
     "realistic": [
         "/runpod-volume/lora",
+        "/runpod-volume/lora/flux_nsfw",
         "/runpod-volume/lora/realistic"
     ],
     "anime": [
         "/runpod-volume/cartoon/lora",
-        "/runpod-volume/anime/lora"
+        "/runpod-volume/anime/lora",
+        "/runpod-volume/cartoon"
     ]
 }
 
@@ -1700,12 +1763,12 @@ LORA_FILE_PATTERNS = {
     "blowjob": ["blowjob.safetensors", "Blowjob.safetensors", "blow_job.safetensors"],
     "cum_on_face": ["cumonface.safetensors", "cum_on_face.safetensors", "CumOnFace.safetensors"],
     
-    # 动漫风格LoRA
-    "gayporn": ["Gayporn.safetensor", "gayporn.safetensors", "GayPorn.safetensors"]
+    # 动漫风格LoRA - 修复文件扩展名
+    "gayporn": ["Gayporn.safetensor", "Gayporn.safetensors", "gayporn.safetensors", "GayPorn.safetensors"]
 }
 
 def find_lora_file(lora_id: str, base_model: str) -> str:
-    """动态搜索LoRA文件路径"""
+    """动态搜索LoRA文件路径 - 增强搜索逻辑"""
     search_paths = LORA_SEARCH_PATHS.get(base_model, [])
     file_patterns = LORA_FILE_PATTERNS.get(lora_id, [lora_id])
     
@@ -1728,7 +1791,7 @@ def find_lora_file(lora_id: str, base_model: str) -> str:
         # 尝试模糊匹配（文件名包含lora_id）
         try:
             for filename in os.listdir(base_path):
-                if filename.endswith(('.safetensors', '.ckpt', '.pt')):
+                if filename.endswith(('.safetensors', '.safetensor', '.ckpt', '.pt')):
                     # 检查文件名是否包含lora_id的关键词
                     name_lower = filename.lower()
                     lora_lower = lora_id.lower().replace('_', '').replace('-', '')
