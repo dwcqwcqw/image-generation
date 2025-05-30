@@ -12,6 +12,7 @@ import boto3
 from botocore.config import Config
 import sys
 import traceback
+import re
 
 # 导入compel用于处理长提示词
 try:
@@ -513,54 +514,95 @@ def process_long_prompt(prompt: str, max_clip_tokens: int = 75, max_t5_tokens: i
     if not prompt:
         return "", ""
     
-    # 简单的token估算（按空格和逗号分割）
-    words = prompt.replace(',', ' , ').split()
-    estimated_tokens = len(words)
+    # 🎯 更准确的token估算：考虑标点符号和特殊字符
+    # 简单分词：按空格、逗号、标点符号分割
+    tokens = re.findall(r'\w+|[^\w\s]', prompt.lower())
+    estimated_tokens = len(tokens)
     
-    print(f"📏 Prompt analysis: {len(prompt)} chars, ~{estimated_tokens} tokens")
+    print(f"📏 Prompt analysis: {len(prompt)} chars, ~{estimated_tokens} tokens (improved estimation)")
     
     if estimated_tokens <= max_clip_tokens:
         # 短prompt：两个编码器都使用完整prompt
         print("✅ Short prompt: using full prompt for both CLIP and T5")
         return prompt, prompt
     else:
-        # 长prompt：CLIP使用截断版本，T5使用完整版本（如果不超过512token）
+        # 长prompt：CLIP使用截断版本，T5使用完整版本
         if estimated_tokens <= max_t5_tokens:
-            # 为CLIP创建截断版本，保持语义完整性
-            clip_words = words[:max_clip_tokens]
-            # 尝试在句号或逗号处截断以保持语义
-            for i in range(len(clip_words) - 1, max(0, len(clip_words) - 10), -1):
-                if clip_words[i].endswith(('.', ',', ';')):
-                    clip_words = clip_words[:i+1]
+            # 🎯 更智能的CLIP截断：保持完整的语义单元
+            words = prompt.split()
+            
+            # 从前往后累积token，确保不超过限制
+            clip_words = []
+            current_tokens = 0
+            
+            for word in words:
+                # 估算当前单词的token数（考虑标点符号）
+                word_tokens = len(re.findall(r'\w+|[^\w\s]', word.lower()))
+                
+                if current_tokens + word_tokens <= max_clip_tokens:
+                    clip_words.append(word)
+                    current_tokens += word_tokens
+                else:
                     break
             
-            clip_prompt = ' '.join(clip_words).replace(' , ', ', ')
+            # 如果截断点不理想，尝试在句号或逗号处截断
+            if len(clip_words) > 10:  # 只在有足够词汇时优化截断点
+                for i in range(len(clip_words) - 1, max(0, len(clip_words) - 5), -1):
+                    if clip_words[i].endswith(('.', ',', ';', '!')):
+                        clip_words = clip_words[:i+1]
+                        break
+            
+            clip_prompt = ' '.join(clip_words)
+            
             print(f"📝 Long prompt optimization:")
-            print(f"   CLIP prompt: ~{len(clip_words)} tokens (truncated)")
-            print(f"   T5 prompt: ~{estimated_tokens} tokens (full)")
+            print(f"   CLIP prompt: ~{len(clip_words)} words → {len(re.findall(r'\\w+|[^\\w\\s]', clip_prompt.lower()))} tokens (safe truncation)")
+            print(f"   T5 prompt: ~{estimated_tokens} tokens (full prompt)")
             return clip_prompt, prompt
         else:
             # 超长prompt：两个编码器都需要截断
-            clip_words = words[:max_clip_tokens]
-            t5_words = words[:max_t5_tokens]
+            words = prompt.split()
             
-            # 尝试在合适位置截断
-            for i in range(len(clip_words) - 1, max(0, len(clip_words) - 10), -1):
-                if clip_words[i].endswith(('.', ',', ';')):
-                    clip_words = clip_words[:i+1]
+            # CLIP截断
+            clip_words = []
+            current_tokens = 0
+            for word in words:
+                word_tokens = len(re.findall(r'\\w+|[^\\w\\s]', word.lower()))
+                if current_tokens + word_tokens <= max_clip_tokens:
+                    clip_words.append(word)
+                    current_tokens += word_tokens
+                else:
                     break
-                    
-            for i in range(len(t5_words) - 1, max(0, len(t5_words) - 20), -1):
-                if t5_words[i].endswith(('.', ',', ';')):
-                    t5_words = t5_words[:i+1]
+            
+            # T5截断
+            t5_words = []
+            current_tokens = 0
+            for word in words:
+                word_tokens = len(re.findall(r'\\w+|[^\\w\\s]', word.lower()))
+                if current_tokens + word_tokens <= max_t5_tokens:
+                    t5_words.append(word)
+                    current_tokens += word_tokens
+                else:
                     break
             
-            clip_prompt = ' '.join(clip_words).replace(' , ', ', ')
-            t5_prompt = ' '.join(t5_words).replace(' , ', ', ')
+            # 优化截断点
+            if len(clip_words) > 10:
+                for i in range(len(clip_words) - 1, max(0, len(clip_words) - 5), -1):
+                    if clip_words[i].endswith(('.', ',', ';')):
+                        clip_words = clip_words[:i+1]
+                        break
+                        
+            if len(t5_words) > 20:
+                for i in range(len(t5_words) - 1, max(0, len(t5_words) - 10), -1):
+                    if t5_words[i].endswith(('.', ',', ';')):
+                        t5_words = t5_words[:i+1]
+                        break
             
-            print(f"⚠️  Ultra-long prompt: both encoders truncated")
-            print(f"   CLIP prompt: ~{len(clip_words)} tokens")
-            print(f"   T5 prompt: ~{len(t5_words)} tokens")
+            clip_prompt = ' '.join(clip_words)
+            t5_prompt = ' '.join(t5_words)
+            
+            print(f"⚠️  Ultra-long prompt: both encoders truncated intelligently")
+            print(f"   CLIP prompt: ~{len(clip_words)} words → {len(re.findall(r'\\w+|[^\\w\\s]', clip_prompt.lower()))} tokens")
+            print(f"   T5 prompt: ~{len(t5_words)} words → {len(re.findall(r'\\w+|[^\\w\\s]', t5_prompt.lower()))} tokens")
             return clip_prompt, t5_prompt
 
 def text_to_image(params: dict) -> list:

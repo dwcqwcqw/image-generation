@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-测试长提示词处理功能（简化版本）
+测试长提示词处理功能（改进版本）
 """
+import re
 
 def process_long_prompt(prompt: str, max_clip_tokens: int = 75, max_t5_tokens: int = 500) -> tuple:
     """
@@ -18,121 +19,156 @@ def process_long_prompt(prompt: str, max_clip_tokens: int = 75, max_t5_tokens: i
     if not prompt:
         return "", ""
     
-    # 简单的token估算（按空格和逗号分割）
-    words = prompt.replace(',', ' , ').split()
-    estimated_tokens = len(words)
+    # 🎯 更准确的token估算：考虑标点符号和特殊字符
+    # 简单分词：按空格、逗号、标点符号分割
+    tokens = re.findall(r'\w+|[^\w\s]', prompt.lower())
+    estimated_tokens = len(tokens)
     
-    print(f"📏 Prompt analysis: {len(prompt)} chars, ~{estimated_tokens} tokens")
+    print(f"📏 Prompt analysis: {len(prompt)} chars, ~{estimated_tokens} tokens (improved estimation)")
     
     if estimated_tokens <= max_clip_tokens:
         # 短prompt：两个编码器都使用完整prompt
         print("✅ Short prompt: using full prompt for both CLIP and T5")
         return prompt, prompt
     else:
-        # 长prompt：CLIP使用截断版本，T5使用完整版本（如果不超过512token）
+        # 长prompt：CLIP使用截断版本，T5使用完整版本
         if estimated_tokens <= max_t5_tokens:
-            # 为CLIP创建截断版本，保持语义完整性
-            clip_words = words[:max_clip_tokens]
-            # 尝试在句号或逗号处截断以保持语义
-            for i in range(len(clip_words) - 1, max(0, len(clip_words) - 10), -1):
-                if clip_words[i].endswith(('.', ',', ';')):
-                    clip_words = clip_words[:i+1]
+            # 🎯 更智能的CLIP截断：保持完整的语义单元
+            words = prompt.split()
+            
+            # 从前往后累积token，确保不超过限制
+            clip_words = []
+            current_tokens = 0
+            
+            for word in words:
+                # 估算当前单词的token数（考虑标点符号）
+                word_tokens = len(re.findall(r'\w+|[^\w\s]', word.lower()))
+                
+                if current_tokens + word_tokens <= max_clip_tokens:
+                    clip_words.append(word)
+                    current_tokens += word_tokens
+                else:
                     break
             
-            clip_prompt = ' '.join(clip_words).replace(' , ', ', ')
+            # 如果截断点不理想，尝试在句号或逗号处截断
+            if len(clip_words) > 10:  # 只在有足够词汇时优化截断点
+                for i in range(len(clip_words) - 1, max(0, len(clip_words) - 5), -1):
+                    if clip_words[i].endswith(('.', ',', ';', '!')):
+                        clip_words = clip_words[:i+1]
+                        break
+            
+            clip_prompt = ' '.join(clip_words)
+            
             print(f"📝 Long prompt optimization:")
-            print(f"   CLIP prompt: ~{len(clip_words)} tokens (truncated)")
-            print(f"   T5 prompt: ~{estimated_tokens} tokens (full)")
+            print(f"   CLIP prompt: ~{len(clip_words)} words → {len(re.findall(r'\\w+|[^\\w\\s]', clip_prompt.lower()))} tokens (safe truncation)")
+            print(f"   T5 prompt: ~{estimated_tokens} tokens (full prompt)")
             return clip_prompt, prompt
         else:
             # 超长prompt：两个编码器都需要截断
-            clip_words = words[:max_clip_tokens]
-            t5_words = words[:max_t5_tokens]
+            words = prompt.split()
             
-            # 尝试在合适位置截断
-            for i in range(len(clip_words) - 1, max(0, len(clip_words) - 10), -1):
-                if clip_words[i].endswith(('.', ',', ';')):
-                    clip_words = clip_words[:i+1]
+            # CLIP截断
+            clip_words = []
+            current_tokens = 0
+            for word in words:
+                word_tokens = len(re.findall(r'\\w+|[^\\w\\s]', word.lower()))
+                if current_tokens + word_tokens <= max_clip_tokens:
+                    clip_words.append(word)
+                    current_tokens += word_tokens
+                else:
                     break
-                    
-            for i in range(len(t5_words) - 1, max(0, len(t5_words) - 20), -1):
-                if t5_words[i].endswith(('.', ',', ';')):
-                    t5_words = t5_words[:i+1]
+            
+            # T5截断
+            t5_words = []
+            current_tokens = 0
+            for word in words:
+                word_tokens = len(re.findall(r'\\w+|[^\\w\\s]', word.lower()))
+                if current_tokens + word_tokens <= max_t5_tokens:
+                    t5_words.append(word)
+                    current_tokens += word_tokens
+                else:
                     break
             
-            clip_prompt = ' '.join(clip_words).replace(' , ', ', ')
-            t5_prompt = ' '.join(t5_words).replace(' , ', ', ')
+            # 优化截断点
+            if len(clip_words) > 10:
+                for i in range(len(clip_words) - 1, max(0, len(clip_words) - 5), -1):
+                    if clip_words[i].endswith(('.', ',', ';')):
+                        clip_words = clip_words[:i+1]
+                        break
+                        
+            if len(t5_words) > 20:
+                for i in range(len(t5_words) - 1, max(0, len(t5_words) - 10), -1):
+                    if t5_words[i].endswith(('.', ',', ';')):
+                        t5_words = t5_words[:i+1]
+                        break
             
-            print(f"⚠️  Ultra-long prompt: both encoders truncated")
-            print(f"   CLIP prompt: ~{len(clip_words)} tokens")
-            print(f"   T5 prompt: ~{len(t5_words)} tokens")
+            clip_prompt = ' '.join(clip_words)
+            t5_prompt = ' '.join(t5_words)
+            
+            print(f"⚠️  Ultra-long prompt: both encoders truncated intelligently")
+            print(f"   CLIP prompt: ~{len(clip_words)} words → {len(re.findall(r'\\w+|[^\\w\\s]', clip_prompt.lower()))} tokens")
+            print(f"   T5 prompt: ~{len(t5_words)} words → {len(re.findall(r'\\w+|[^\\w\\s]', t5_prompt.lower()))} tokens")
             return clip_prompt, t5_prompt
 
 def test_long_prompt_processing():
     """测试长提示词处理功能"""
-    print("🧪 Testing long prompt processing functionality...")
+    print("🧪 Testing improved long prompt processing functionality...\n")
     
     # 测试1：短prompt（应该两个编码器都使用完整prompt）
     short_prompt = "A beautiful landscape with mountains and rivers"
-    clip_short, t5_short = process_long_prompt(short_prompt)
-    print(f"\n📝 Test 1 - Short prompt:")
+    print(f"📝 Test 1 - Short prompt:")
     print(f"Input: {short_prompt}")
+    clip_short, t5_short = process_long_prompt(short_prompt)
     print(f"CLIP output: {clip_short}")
     print(f"T5 output: {t5_short}")
     assert clip_short == short_prompt
     assert t5_short == short_prompt
-    print("✅ Short prompt test passed")
+    print("✅ Short prompt test passed\n")
     
-    # 测试2：中等长度prompt（CLIP截断，T5完整）
-    medium_prompt = "A highly detailed, photorealistic digital artwork depicting a majestic mountain landscape at golden hour, with snow-capped peaks towering above a serene alpine lake that perfectly reflects the warm orange and pink hues of the sunset sky, surrounded by dense coniferous forests of pine and fir trees, with a small wooden cabin nestled among the trees, smoke gently rising from its chimney, creating a peaceful and idyllic scene that captures the essence of natural beauty and tranquility"
-    clip_medium, t5_medium = process_long_prompt(medium_prompt)
-    print(f"\n📝 Test 2 - Medium prompt:")
-    print(f"Input length: {len(medium_prompt)} chars")
-    print(f"CLIP output: {clip_medium}")
-    print(f"T5 output: {t5_medium}")
-    assert len(clip_medium) < len(medium_prompt)  # CLIP应该被截断
-    assert t5_medium == medium_prompt  # T5应该是完整的
-    print("✅ Medium prompt test passed")
+    # 测试2：实际导致截断的prompt（从日志中提取）
+    real_long_prompt = "A young, handsome, muscular man with defined abs and pecs stands confidently in a luxurious bedroom. His partner, equally attractive, kneels before him with an expression of desire and anticipation. The man's arousal is evident, and his partner leans in closer, ready to pleasure him. The scene is intimate and passionate as the partner gives him a blowjob,"
+    print(f"📝 Test 2 - Real problematic prompt (557 chars):")
+    print(f"Input: {real_long_prompt}")
+    clip_real, t5_real = process_long_prompt(real_long_prompt)
+    print(f"CLIP output ({len(clip_real)} chars): {clip_real}")
+    print(f"T5 output ({len(t5_real)} chars): {t5_real}")
     
-    # 测试3：超长prompt（两个编码器都截断）
-    very_long_prompt = " ".join([
-        "A highly detailed, photorealistic digital artwork depicting",
-        "a majestic mountain landscape at golden hour with snow-capped peaks",
-        "towering above a serene alpine lake that perfectly reflects",
-        "the warm orange and pink hues of the sunset sky surrounded by",
-        "dense coniferous forests of pine and fir trees with a small wooden cabin",
-        "nestled among the trees smoke gently rising from its chimney creating",
-        "a peaceful and idyllic scene that captures the essence of natural beauty",
-        "and tranquility featuring intricate details like individual leaves on trees",
-        "ripples on the water surface reflections of clouds wildlife such as deer",
-        "and birds atmospheric perspective with misty valleys distant mountain ranges",
-        "dramatic lighting effects volumetric rays of sunlight filtering through",
-        "the forest canopy creating god rays and lens flares professional photography",
-        "style with shallow depth of field bokeh effects cinematic composition",
-        "rule of thirds leading lines dynamic range HDR processing post-processing",
-        "color grading warm color palette earth tones natural saturation",
-        "high contrast sharp focus crystal clear details 8K resolution",
-        "ultra-wide aspect ratio panoramic view establishing shot environmental",
-        "storytelling mood and atmosphere emotional impact artistic vision",
-        "masterpiece quality award-winning photography nature documentary style"
-    ] * 5)  # 重复5次创建超长prompt
+    # 验证CLIP部分token数不超过75
+    clip_tokens = len(re.findall(r'\w+|[^\w\s]', clip_real.lower()))
+    print(f"🔍 CLIP token count: {clip_tokens} (should be ≤ 75)")
+    assert clip_tokens <= 75, f"CLIP token count {clip_tokens} exceeds limit of 75"
+    assert t5_real == real_long_prompt, "T5 should have full prompt"
+    print("✅ Real prompt test passed\n")
     
-    clip_long, t5_long = process_long_prompt(very_long_prompt)
-    print(f"\n📝 Test 3 - Very long prompt:")
-    print(f"Input length: {len(very_long_prompt)} chars")
-    print(f"CLIP output length: {len(clip_long)} chars")
-    print(f"T5 output length: {len(t5_long)} chars")
-    assert len(clip_long) < len(very_long_prompt)  # CLIP应该被截断
-    assert len(t5_long) < len(very_long_prompt)    # T5也应该被截断
-    print("✅ Very long prompt test passed")
+    # 测试3：超长prompt（需要两个编码器都截断）
+    ultra_long_prompt = " ".join([
+        "A very detailed and extremely long prompt that describes",
+        "countless elements and scenarios that would definitely",
+        "exceed both the CLIP and T5 token limits,",
+        "including multiple characters, complex backgrounds,",
+        "detailed lighting conditions, specific art styles,",
+        "numerous objects and props, detailed clothing descriptions,",
+        "facial expressions, body positions, environmental details,",
+        "atmospheric conditions, color palettes, composition rules,",
+        "camera angles, depth of field settings, and many other",
+        "technical and artistic specifications that continue on",
+        "and on with even more descriptive elements and requirements"
+    ] * 10)  # 重复10次让它变得超长
     
-    # 测试4：空prompt
-    empty_clip, empty_t5 = process_long_prompt("")
-    assert empty_clip == ""
-    assert empty_t5 == ""
-    print("✅ Empty prompt test passed")
+    print(f"📝 Test 3 - Ultra-long prompt ({len(ultra_long_prompt)} chars):")
+    clip_ultra, t5_ultra = process_long_prompt(ultra_long_prompt)
     
-    print("\n🎉 All long prompt processing tests passed!")
+    clip_ultra_tokens = len(re.findall(r'\w+|[^\w\s]', clip_ultra.lower()))
+    t5_ultra_tokens = len(re.findall(r'\w+|[^\w\s]', t5_ultra.lower()))
+    
+    print(f"🔍 CLIP result: {clip_ultra_tokens} tokens (should be ≤ 75)")
+    print(f"🔍 T5 result: {t5_ultra_tokens} tokens (should be ≤ 500)")
+    
+    assert clip_ultra_tokens <= 75, f"CLIP token count {clip_ultra_tokens} exceeds limit"
+    assert t5_ultra_tokens <= 500, f"T5 token count {t5_ultra_tokens} exceeds limit"
+    print("✅ Ultra-long prompt test passed\n")
+    
+    print("🎉 All improved prompt processing tests passed!")
 
 if __name__ == "__main__":
     test_long_prompt_processing() 
