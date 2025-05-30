@@ -69,10 +69,12 @@ async function callRunPodAPI(taskType: string, params: any, signal?: AbortSignal
 
   const RUNPOD_API_URL = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/runsync`
 
+  // 🚀 Fix: Flatten parameters structure for direct backend access
   const runpodRequest = {
     input: {
       task_type: taskType,
-      params: params,
+      // Flatten all parameters directly to input level
+      ...params,
       ...(taskType === 'switch-lora' && { lora_id: params.lora_id })
     }
   }
@@ -186,7 +188,10 @@ async function pollRunPodJob(jobId: string, signal?: AbortSignal): Promise<any> 
 export async function generateTextToImage(params: TextToImageParams, signal?: AbortSignal): Promise<GeneratedImage[]> {
   try {
     console.log('generateTextToImage called with USE_RUNPOD_DIRECT:', USE_RUNPOD_DIRECT)
-    console.log('Requested LoRA model:', params.lora_model)
+    console.log('Full parameters being sent:', params)
+    console.log('Requested numImages:', params.numImages)
+    console.log('Requested baseModel:', params.baseModel)
+    console.log('Requested LoRA config:', params.lora_config)
     
     // 优化：不在前端进行LoRA切换，让后端自动处理
     // 后端会检查并只在需要时进行切换

@@ -870,7 +870,7 @@ def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt
     
     return results
 
-def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, height: int = 1024, steps: int = 4, cfg_scale: float = 0.0, seed: int = -1, num_images: int = 1, base_model: str = "realistic") -> list:
+def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, height: int = 1024, steps: int = 12, cfg_scale: float = 1.0, seed: int = -1, num_images: int = 1, base_model: str = "realistic") -> list:
     """文本生成图像 - 支持多种模型类型"""
     global current_base_model, txt2img_pipe
     
@@ -1567,8 +1567,8 @@ def handler(job):
             negative_prompt = job_input.get('negativePrompt', '') 
             width = job_input.get('width', 1024)
             height = job_input.get('height', 1024)
-            steps = job_input.get('steps', 4)
-            cfg_scale = job_input.get('cfgScale', 0.0)
+            steps = job_input.get('steps', 12)
+            cfg_scale = job_input.get('cfgScale', 1.0)
             seed = job_input.get('seed', -1)
             num_images = job_input.get('numImages', 1)
             base_model = job_input.get('baseModel', 'realistic')
@@ -1597,8 +1597,25 @@ def handler(job):
             }
             
         elif task_type == 'image-to-image':
-            # 优化：支持多LoRA配置
-            params = job_input.get('params', {})
+            # 图像转图像生成 - 修复参数提取
+            print("📝 Processing image-to-image request...")
+            
+            # 直接从job_input提取参数，而不是嵌套的params对象
+            params = {
+                'prompt': job_input.get('prompt', ''),
+                'negativePrompt': job_input.get('negativePrompt', ''),
+                'image': job_input.get('image', ''),
+                'width': job_input.get('width', 512),
+                'height': job_input.get('height', 512),
+                'steps': job_input.get('steps', 20),
+                'cfgScale': job_input.get('cfgScale', 7.0),
+                'seed': job_input.get('seed', -1),
+                'numImages': job_input.get('numImages', 1),
+                'denoisingStrength': job_input.get('denoisingStrength', 0.7),
+                'baseModel': job_input.get('baseModel', 'realistic'),
+                'lora_config': job_input.get('lora_config', {})
+            }
+            
             requested_lora_config = params.get('lora_config', current_lora_config)
             
             # 检查是否需要更新LoRA配置
