@@ -642,7 +642,7 @@ def text_to_image(params: dict) -> list:
             
             # 🎯 优化长提示词处理：为FLUX双编码器系统优化
             clip_prompt, t5_prompt = process_long_prompt(prompt)
-            clip_negative, t5_negative = process_long_prompt(negative_prompt) if negative_prompt else ("", "")
+            # FLUX不需要负提示词嵌入，只处理正提示词
             
             with torch.cuda.amp.autocast(enabled=False):  # Disable autocast to reduce memory
                 prompt_embeds_obj = txt2img_pipe.encode_prompt(
@@ -665,29 +665,8 @@ def text_to_image(params: dict) -> list:
             torch.cuda.empty_cache()
             print(f"💾 GPU Memory after positive encoding (moved to CPU): {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
-            # Encode negative prompt with memory management
-            print("🔤 Encoding negative prompt...")
-            current_negative_prompt = negative_prompt if negative_prompt else ""
-            with torch.cuda.amp.autocast(enabled=False):  # Disable autocast to reduce memory
-                negative_prompt_embeds_obj = txt2img_pipe.encode_prompt(
-                    prompt=clip_negative,    # CLIP编码器使用优化后的负prompt（最多77 tokens）
-                    prompt_2=t5_negative,    # T5编码器使用完整负prompt（最多512 tokens）
-                    device=device,
-                    num_images_per_prompt=1
-                )
-            
-            # Force move negative embeddings to CPU immediately
-            if hasattr(negative_prompt_embeds_obj, 'prompt_embeds'):
-                negative_prompt_embeds_cpu = negative_prompt_embeds_obj.prompt_embeds.cpu()
-                negative_pooled_prompt_embeds_cpu = negative_prompt_embeds_obj.pooled_prompt_embeds.cpu() if hasattr(negative_prompt_embeds_obj, 'pooled_prompt_embeds') else None
-            else:
-                # Handle tuple case
-                negative_prompt_embeds_cpu = negative_prompt_embeds_obj[0].cpu() if isinstance(negative_prompt_embeds_obj, tuple) else None
-                negative_pooled_prompt_embeds_cpu = negative_prompt_embeds_obj[1].cpu() if isinstance(negative_prompt_embeds_obj, tuple) and len(negative_prompt_embeds_obj) > 1 else None
-            
-            # Clear cache after negative encoding
-            torch.cuda.empty_cache()
-            print(f"💾 GPU Memory after negative encoding (moved to CPU): {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+            # ❌ 跳过负提示词嵌入编码，FLUX不支持
+            print("⚡ Skipping negative prompt embedding encoding (FLUX doesn't support negative_prompt_embeds)")
             
         finally:
             # Restore text encoders to original devices (only if we moved them manually)
@@ -709,12 +688,22 @@ def text_to_image(params: dict) -> list:
         
         # Move embeddings back to GPU when needed
         generation_kwargs["prompt_embeds"] = prompt_embeds_cpu.to(device)
-        generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_cpu.to(device)
+        # ❌ FLUX不支持negative_prompt_embeds参数，移除
+        # generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_cpu.to(device)
         
         if pooled_prompt_embeds_cpu is not None:
             generation_kwargs["pooled_prompt_embeds"] = pooled_prompt_embeds_cpu.to(device)
-        if negative_pooled_prompt_embeds_cpu is not None:
-            generation_kwargs["negative_pooled_prompt_embeds"] = negative_pooled_prompt_embeds_cpu.to(device)
+        # ❌ FLUX不支持negative_pooled_prompt_embeds参数，移除  
+        # if negative_pooled_prompt_embeds_cpu is not None:
+        #     generation_kwargs["negative_pooled_prompt_embeds"] = negative_pooled_prompt_embeds_cpu.to(device)
+
+        # 🎯 对于FLUX，使用true_cfg_scale来处理负提示词（如果需要的话）
+        if negative_prompt and negative_prompt.strip():
+            print("🔥 Using true_cfg_scale for negative prompt handling in FLUX")
+            generation_kwargs["true_cfg_scale"] = 4.0  # 推荐值：1.0-7.0
+            generation_kwargs["negative_prompt"] = negative_prompt  # 传递原始负提示词
+        else:
+            generation_kwargs["true_cfg_scale"] = 1.0  # 默认值，不使用CFG
 
         print(f"💾 GPU Memory after moving embeddings to GPU: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
         print("✅ Embeddings successfully generated and assigned.")
@@ -951,7 +940,7 @@ def image_to_image(params: dict) -> list:
             
             # 🎯 优化长提示词处理：为FLUX双编码器系统优化
             clip_prompt, t5_prompt = process_long_prompt(prompt)
-            clip_negative, t5_negative = process_long_prompt(negative_prompt) if negative_prompt else ("", "")
+            # FLUX不需要负提示词嵌入，只处理正提示词
             
             with torch.cuda.amp.autocast(enabled=False):
                 prompt_embeds_obj = img2img_pipe.encode_prompt(
@@ -973,28 +962,8 @@ def image_to_image(params: dict) -> list:
             torch.cuda.empty_cache()
             print(f"💾 GPU Memory after positive img2img encoding (moved to CPU): {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
-            # Encode negative prompt with memory management
-            print("🔤 Encoding negative prompt for img2img...")
-            current_negative_prompt = negative_prompt if negative_prompt else ""
-            with torch.cuda.amp.autocast(enabled=False):
-                negative_prompt_embeds_obj = img2img_pipe.encode_prompt(
-                    prompt=clip_negative,    # CLIP编码器使用优化后的负prompt（最多77 tokens）
-                    prompt_2=t5_negative,    # T5编码器使用完整负prompt（最多512 tokens）
-                    device=device,
-                    num_images_per_prompt=1
-                )
-            
-            # Force move negative embeddings to CPU immediately
-            if hasattr(negative_prompt_embeds_obj, 'prompt_embeds'):
-                negative_prompt_embeds_cpu = negative_prompt_embeds_obj.prompt_embeds.cpu()
-                negative_pooled_prompt_embeds_cpu = negative_prompt_embeds_obj.pooled_prompt_embeds.cpu() if hasattr(negative_prompt_embeds_obj, 'pooled_prompt_embeds') else None
-            else:
-                negative_prompt_embeds_cpu = negative_prompt_embeds_obj[0].cpu() if isinstance(negative_prompt_embeds_obj, tuple) else None
-                negative_pooled_prompt_embeds_cpu = negative_prompt_embeds_obj[1].cpu() if isinstance(negative_prompt_embeds_obj, tuple) and len(negative_prompt_embeds_obj) > 1 else None
-            
-            # Clear cache after negative encoding
-            torch.cuda.empty_cache()
-            print(f"💾 GPU Memory after negative img2img encoding (moved to CPU): {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+            # ❌ 跳过负提示词嵌入编码，FLUX不支持
+            print("⚡ Skipping negative prompt embedding encoding for img2img (FLUX doesn't support negative_prompt_embeds)")
             
         finally:
             # Restore text encoders to original devices (only if we moved them manually)
@@ -1016,12 +985,22 @@ def image_to_image(params: dict) -> list:
         
         # Move embeddings back to GPU when needed
         generation_kwargs["prompt_embeds"] = prompt_embeds_cpu.to(device)
-        generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_cpu.to(device)
+        # ❌ FLUX不支持negative_prompt_embeds参数，移除
+        # generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_cpu.to(device)
         
         if pooled_prompt_embeds_cpu is not None:
             generation_kwargs["pooled_prompt_embeds"] = pooled_prompt_embeds_cpu.to(device)
-        if negative_pooled_prompt_embeds_cpu is not None:
-            generation_kwargs["negative_pooled_prompt_embeds"] = negative_pooled_prompt_embeds_cpu.to(device)
+        # ❌ FLUX不支持negative_pooled_prompt_embeds参数，移除  
+        # if negative_pooled_prompt_embeds_cpu is not None:
+        #     generation_kwargs["negative_pooled_prompt_embeds"] = negative_pooled_prompt_embeds_cpu.to(device)
+
+        # 🎯 对于FLUX，使用true_cfg_scale来处理负提示词（如果需要的话）
+        if negative_prompt and negative_prompt.strip():
+            print("🔥 Using true_cfg_scale for negative prompt handling in img2img FLUX")
+            generation_kwargs["true_cfg_scale"] = 4.0  # 推荐值：1.0-7.0
+            generation_kwargs["negative_prompt"] = negative_prompt  # 传递原始负提示词
+        else:
+            generation_kwargs["true_cfg_scale"] = 1.0  # 默认值，不使用CFG
 
         print(f"💾 GPU Memory after moving img2img embeddings to GPU: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
         print("✅ Img2Img Embeddings successfully generated and assigned.")
