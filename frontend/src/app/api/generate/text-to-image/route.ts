@@ -25,6 +25,7 @@ export async function POST(request: NextRequest) {
           height: body.height || 512,
           steps: body.steps || 20,
           cfgScale: body.cfgScale || 7.0,
+          baseModel: body.baseModel || 'realistic',
           createdAt: new Date().toISOString(),
           type: 'text-to-image'
         }]
@@ -43,20 +44,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 准备 RunPod 请求
+    // 准备 RunPod 请求 - 支持新的静态LoRA系统
     const runpodRequest = {
       input: {
         task_type: 'text-to-image',
-        params: {
-          prompt: body.prompt,
-          negativePrompt: body.negativePrompt || '',
-          width: body.width || 512,
-          height: body.height || 512,
-          steps: body.steps || 20,
-          cfgScale: body.cfgScale || 7.0,
-          seed: body.seed || -1,
-          numImages: Math.min(body.numImages || 1, 4), // 限制最多4张
-        }
+        prompt: body.prompt,
+        negativePrompt: body.negativePrompt || '',
+        width: body.width || 512,
+        height: body.height || 512,
+        steps: body.steps || (body.baseModel === 'realistic' ? 4 : 20),
+        cfgScale: body.cfgScale !== undefined ? body.cfgScale : (body.baseModel === 'realistic' ? 0.0 : 7.0),
+        seed: body.seed || -1,
+        numImages: Math.min(body.numImages || 1, 4), // 限制最多4张
+        baseModel: body.baseModel || 'realistic',
+        lora_config: body.lora_config || {}
       }
     }
 
@@ -71,22 +72,34 @@ export async function POST(request: NextRequest) {
       timeout: 300000, // 5 分钟超时
     })
 
-    console.log('RunPod response:', response.data)
+    console.log('RunPod response status:', response.data.status)
 
+    // 处理不同的响应状态
     if (response.data.status === 'COMPLETED') {
       const output = response.data.output
       
-      if (output.success) {
+      if (output && output.success) {
         return NextResponse.json({
           success: true,
           data: output.data
         })
       } else {
         return NextResponse.json(
-          { success: false, error: output.error || 'Generation failed' },
+          { success: false, error: output?.error || 'Generation failed' },
           { status: 500 }
         )
       }
+    } else if (response.data.status === 'IN_QUEUE' || response.data.status === 'IN_PROGRESS') {
+      // 对于队列状态，返回202状态码并让前端处理轮询
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: `Job is ${response.data.status.toLowerCase().replace('_', ' ')}. Please try again in a moment.`,
+          status: response.data.status,
+          jobId: response.data.id
+        },
+        { status: 202 }
+      )
     } else {
       return NextResponse.json(
         { success: false, error: `RunPod job failed with status: ${response.data.status}` },
@@ -102,6 +115,10 @@ export async function POST(request: NextRequest) {
         { success: false, error: 'Request timeout. Please try again.' },
         { status: 408 }
       )
+    }
+    
+    if (error.response) {
+      console.error('RunPod API error response:', error.response.data)
     }
     
     return NextResponse.json(

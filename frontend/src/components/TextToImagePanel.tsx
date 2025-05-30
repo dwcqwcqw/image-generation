@@ -39,11 +39,11 @@ export default function TextToImagePanel() {
   
   const [params, setParams] = useState<TextToImageParams>({
     prompt: '',
-    negativePrompt: 'low quality, blurry, bad anatomy, deformed hands, extra fingers, missing fingers, deformed limbs, extra limbs, bad proportions, malformed genitals, watermark',
+    negativePrompt: '', // Will be removed from UI
     width: 512,
     height: 512,
-    steps: 20,
-    cfgScale: 7.0,
+    steps: baseModel === 'realistic' ? 4 : 20, // FLUX uses 4 steps, anime uses 20
+    cfgScale: baseModel === 'realistic' ? 0.0 : 7.0, // FLUX uses 0.0, anime uses 7.0
     seed: -1,
     numImages: 1,
     baseModel: baseModel,
@@ -52,14 +52,25 @@ export default function TextToImagePanel() {
 
   // Update params when global base model changes
   React.useEffect(() => {
+    console.log('BaseModel changed to:', baseModel)
+    console.log('LoRA config changed to:', loraConfig)
+    
     setParams(prev => ({
       ...prev,
       baseModel: baseModel,
-      lora_config: loraConfig
+      lora_config: loraConfig,
+      // Adjust default parameters based on model type
+      steps: baseModel === 'realistic' ? 4 : 20,
+      cfgScale: baseModel === 'realistic' ? 0.0 : 7.0,
     }))
   }, [baseModel, loraConfig])
 
   const handleGenerate = async () => {
+    if (!params.prompt.trim()) {
+      toast.error('Please enter a prompt')
+      return
+    }
+
     setStatus('pending')
     setCurrentError(null)
     setGenerationProgress('Preparing generation...')
@@ -69,6 +80,8 @@ export default function TextToImagePanel() {
     abortControllerRef.current = new AbortController()
     
     try {
+      console.log('Generating with params:', params)
+      
       const result = await generateTextToImage(params, abortControllerRef.current.signal)
       
       if (abortControllerRef.current.signal.aborted) {
@@ -76,6 +89,8 @@ export default function TextToImagePanel() {
         setGenerationProgress('Generation cancelled')
         return
       }
+      
+      console.log('Generation result:', result)
       
       // Move previous current images to history
       if (currentGenerationImages.length > 0) {
@@ -179,7 +194,9 @@ export default function TextToImagePanel() {
         {/* Controls Panel */}
         <div className="lg:col-span-1 space-y-4">
           <div className="card">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Text to Image</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Text to Image ({baseModel === 'realistic' ? '真人风格' : '动漫风格'})
+            </h3>
             
             {/* Status Display */}
             {(status !== 'idle' || generationProgress) && (
@@ -205,27 +222,13 @@ export default function TextToImagePanel() {
             {/* Prompt */}
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700">
-                Positive Prompt *
+                Prompt *
               </label>
               <textarea
                 value={params.prompt}
                 onChange={(e) => setParams(prev => ({ ...prev, prompt: e.target.value }))}
                 placeholder="A beautiful landscape with mountains and lake at sunset..."
                 className="textarea-field h-24"
-                disabled={status === 'pending'}
-              />
-            </div>
-
-            {/* Negative Prompt */}
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">
-                Negative Prompt
-              </label>
-              <textarea
-                value={params.negativePrompt}
-                onChange={(e) => setParams(prev => ({ ...prev, negativePrompt: e.target.value }))}
-                placeholder="blurry, low quality, distorted..."
-                className="textarea-field h-20"
                 disabled={status === 'pending'}
               />
             </div>
@@ -266,7 +269,10 @@ export default function TextToImagePanel() {
                 {[1, 2, 3, 4].map((num) => (
                   <button
                     key={num}
-                    onClick={() => setParams(prev => ({ ...prev, numImages: num }))}
+                    onClick={() => {
+                      console.log('Setting numImages to:', num)
+                      setParams(prev => ({ ...prev, numImages: num }))
+                    }}
                     className={`p-2 text-sm rounded-lg border transition-colors ${
                       params.numImages === num
                         ? 'border-primary-500 bg-primary-50 text-primary-700'
@@ -278,12 +284,16 @@ export default function TextToImagePanel() {
                   </button>
                 ))}
               </div>
+              <p className="text-xs text-gray-500">Current: {params.numImages} image(s)</p>
             </div>
 
             {/* LoRA Model Selector */}
             <LoRASelector
               value={loraConfig}
-              onChange={setLoraConfig}
+              onChange={(newConfig) => {
+                console.log('LoRA config changing to:', newConfig)
+                setLoraConfig(newConfig)
+              }}
               baseModel={baseModel}
               disabled={status === 'pending'}
             />
@@ -311,31 +321,31 @@ export default function TextToImagePanel() {
                 {/* Steps */}
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    Steps: {params.steps}
+                    Steps: {params.steps} {baseModel === 'realistic' ? '(FLUX推荐4)' : '(动漫推荐20)'}
                   </label>
                   <input
                     type="range"
-                    min="10"
-                    max="50"
+                    min={baseModel === 'realistic' ? "1" : "10"}
+                    max={baseModel === 'realistic' ? "10" : "50"}
                     value={params.steps}
                     onChange={(e) => setParams(prev => ({ ...prev, steps: Number(e.target.value) }))}
                     className="slider"
                     disabled={status === 'pending'}
                   />
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>10</span>
-                    <span>50</span>
+                    <span>{baseModel === 'realistic' ? '1' : '10'}</span>
+                    <span>{baseModel === 'realistic' ? '10' : '50'}</span>
                   </div>
                 </div>
 
                 {/* CFG Scale */}
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    CFG Scale: {params.cfgScale}
+                    CFG Scale: {params.cfgScale} {baseModel === 'realistic' ? '(FLUX推荐0)' : '(动漫推荐7)'}
                   </label>
                   <input
                     type="range"
-                    min="1"
+                    min="0"
                     max="20"
                     step="0.5"
                     value={params.cfgScale}
@@ -344,7 +354,7 @@ export default function TextToImagePanel() {
                     disabled={status === 'pending'}
                   />
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>1</span>
+                    <span>0</span>
                     <span>20</span>
                   </div>
                 </div>
@@ -374,61 +384,61 @@ export default function TextToImagePanel() {
               </div>
             )}
 
-            {/* Action Buttons */}
-            <div className="space-y-3 pt-4">
+            {/* Generate Button */}
+            <div className="flex space-x-2">
               {status === 'pending' ? (
                 <button
                   onClick={handleCancelGeneration}
-                  className="btn-secondary w-full flex items-center justify-center space-x-2"
+                  className="btn-secondary flex-1 flex items-center justify-center space-x-2"
                 >
                   <StopCircle className="w-4 h-4" />
-                  <span>Cancel Generation</span>
+                  <span>Cancel</span>
                 </button>
               ) : (
                 <button
                   onClick={handleGenerate}
                   disabled={!params.prompt.trim()}
-                  className="btn-primary w-full flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="btn-primary flex-1 flex items-center justify-center space-x-2"
                 >
                   <Play className="w-4 h-4" />
-                  <span>Generate Images</span>
+                  <span>Generate</span>
                 </button>
               )}
-
+              
               {status === 'error' && (
                 <button
                   onClick={handleRetry}
-                  className="btn-secondary w-full flex items-center justify-center space-x-2"
+                  className="btn-secondary flex items-center justify-center space-x-2"
                 >
                   <RefreshCw className="w-4 h-4" />
-                  <span>Try Again</span>
+                  <span>Retry</span>
                 </button>
               )}
             </div>
+
+            {/* Download All Button */}
+            {(currentGenerationImages.length > 0 || historyImages.length > 0) && (
+              <button
+                onClick={downloadAllImages}
+                className="btn-secondary w-full flex items-center justify-center space-x-2"
+                disabled={status === 'pending'}
+              >
+                <Download className="w-4 h-4" />
+                <span>Download All ({currentGenerationImages.length + historyImages.length})</span>
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Results Panel */}
+        {/* Image Gallery */}
         <div className="lg:col-span-2">
-          {(currentGenerationImages.length > 0 || historyImages.length > 0) ? (
-            <ImageGallery 
-              currentImages={currentGenerationImages}
-              historyImages={historyImages}
-              isLoading={status === 'pending'}
-              onDownloadAll={downloadAllImages}
-            />
-          ) : (
-            <div className="card">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Generated Images</h3>
-              <div className="text-center py-12 text-gray-500">
-                <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-                  <Play className="w-8 h-8 text-gray-400" />
-                </div>
-                <p>No images generated yet</p>
-                <p className="text-sm">Enter a prompt and click "Generate Images" to start</p>
-              </div>
-            </div>
-          )}
+          <ImageGallery
+            currentImages={currentGenerationImages}
+            historyImages={historyImages}
+            isLoading={status === 'pending'}
+            title="Generated Images"
+            onDownloadAll={downloadAllImages}
+          />
         </div>
       </div>
     </div>

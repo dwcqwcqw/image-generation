@@ -27,6 +27,15 @@ export default function BaseModelSelector({ value, onChange, disabled = false }:
     }
   ]
 
+  const handleModelChange = (modelId: BaseModelType) => {
+    console.log('BaseModelSelector: Changing from', value, 'to', modelId)
+    if (!disabled && onChange) {
+      onChange(modelId)
+    }
+  }
+
+  console.log('BaseModelSelector: Current value is', value)
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {models.map((model) => {
@@ -36,7 +45,7 @@ export default function BaseModelSelector({ value, onChange, disabled = false }:
         return (
           <button
             key={model.id}
-            onClick={() => !disabled && onChange(model.id)}
+            onClick={() => handleModelChange(model.id)}
             disabled={disabled}
             className={`relative p-6 rounded-xl border-2 transition-all duration-200 text-left ${
               isSelected
@@ -70,6 +79,11 @@ export default function BaseModelSelector({ value, onChange, disabled = false }:
               }`}>
                 {model.description}
               </p>
+            </div>
+            
+            {/* Debug info */}
+            <div className="absolute bottom-2 right-2 text-xs text-gray-400">
+              {isSelected ? '✓' : '○'} {model.id}
             </div>
           </button>
         )
