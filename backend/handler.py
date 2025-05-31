@@ -96,16 +96,16 @@ BASE_MODELS = {
     },
     "anime": {
         "name": "动漫风格", 
-        "model_path": "/runpod-volume/cartoon/sdxl-base-1.0",
+        "model_path": "/runpod-volume/cartoon/Anime_NSFW.safetensors",  # 修改为正确的底层模型
         "model_type": "diffusers",
-        "lora_path": None,  # 移除不兼容的LoRA路径
-        "lora_id": None     # 移除不兼容的LoRA ID
+        "lora_path": "/runpod-volume/cartoon/lora/Gayporn.safetensors",  # 设置默认LoRA
+        "lora_id": "gayporn"  # 设置默认LoRA ID
     }
 }
 
 # 默认LoRA配置 - 根据基础模型（单选模式）
 DEFAULT_LORA_CONFIG = {
-    "flux_nsfw": 1.0  # 默认使用FLUX NSFW
+    "gayporn": 1.0  # 修改为动漫模型的默认LoRA
 }
 
 # 全局变量存储模型
@@ -114,7 +114,7 @@ img2img_pipe = None
 current_lora_config = DEFAULT_LORA_CONFIG.copy()
 current_base_model = None  # 初始化时不预加载任何模型
 device_mapping_enabled = False  # Track if device mapping is used
-current_selected_lora = "flux_nsfw"  # 恢复为FLUX NSFW作为默认，因为动漫模型现在无默认LoRA
+current_selected_lora = "gayporn"  # 修改为动漫模型的默认LoRA
 
 # 全局变量存储compel处理器
 compel_proc = None
@@ -1328,8 +1328,7 @@ def get_loras_by_base_model() -> dict:
             {"id": "cum_on_face", "name": "Cum on Face", "description": "颜射主题内容生成"}
         ],
         "anime": [
-            {"id": "anime_nsfw", "name": "Anime NSFW", "description": "动漫NSFW内容生成模型（可能不兼容）"},
-            {"id": "gayporn", "name": "Gayporn", "description": "男同动漫风格内容生成"},
+            {"id": "gayporn", "name": "Gayporn", "description": "男同动漫风格内容生成（默认）"},
             {"id": "blowjob_handjob", "name": "Blowjob Handjob", "description": "口交和手交动漫内容"},
             {"id": "furry", "name": "Furry", "description": "兽人风格动漫内容"},
             {"id": "sex_slave", "name": "Sex Slave", "description": "性奴主题动漫内容"},
@@ -1340,7 +1339,7 @@ def get_loras_by_base_model() -> dict:
         ],
         "current_selected": {
             "realistic": current_selected_lora if current_base_model == "realistic" else "flux_nsfw",
-            "anime": None  # 动漫模型默认不选择LoRA
+            "anime": "gayporn"  # 设置gayporn为动漫模型的默认选择
         }
     }
 
@@ -1873,9 +1872,8 @@ LORA_FILE_PATTERNS = {
     "blowjob": ["blowjob.safetensors", "Blowjob.safetensors", "blow_job.safetensors"],
     "cum_on_face": ["cumonface.safetensors", "cum_on_face.safetensors", "CumOnFace.safetensors"],
     
-    # 动漫风格LoRA - 更新配置
-    "anime_nsfw": ["Anime_NSFW", "Anime_NSFW.safetensors", "anime_nsfw.safetensors", "AnimeNSFW.safetensors"],
-    "gayporn": ["Gayporn.safetensor", "Gayporn.safetensors", "gayporn.safetensors", "GayPorn.safetensors"],
+    # 动漫风格LoRA - 移除anime_nsfw，因为它现在是底层模型
+    "gayporn": ["Gayporn.safetensors", "gayporn.safetensors", "GayPorn.safetensors"],
     "blowjob_handjob": ["Blowjob_Handjob.safetensors", "blowjob_handjob.safetensors", "BlowjobHandjob.safetensors"],
     "furry": ["Furry.safetensors", "furry.safetensors", "FURRY.safetensors"],
     "sex_slave": ["Sex_slave.safetensors", "sex_slave.safetensors", "SexSlave.safetensors"],

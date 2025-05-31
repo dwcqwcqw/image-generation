@@ -36,8 +36,7 @@ const STATIC_LORAS = {
     { id: 'cum_on_face', name: 'Cum on Face', description: '颜射主题内容生成' }
   ],
   anime: [
-    { id: 'anime_nsfw', name: 'Anime NSFW', description: '动漫NSFW内容生成模型（默认）' },
-    { id: 'gayporn', name: 'Gayporn', description: '男同动漫风格内容生成' },
+    { id: 'gayporn', name: 'Gayporn', description: '男同动漫风格内容生成（默认）' },
     { id: 'blowjob_handjob', name: 'Blowjob Handjob', description: '口交和手交动漫内容' },
     { id: 'furry', name: 'Furry', description: '兽人风格动漫内容' },
     { id: 'sex_slave', name: 'Sex Slave', description: '性奴主题动漫内容' },
@@ -59,8 +58,10 @@ export default function LoRASelector({ value, onChange, baseModel, disabled = fa
     let defaultLora: LoRAOption | null = null;
     if (baseModel === 'realistic' && availableLoras.length > 0) {
       defaultLora = availableLoras[0]; // Realistic模型默认选择第一个
+    } else if (baseModel === 'anime' && availableLoras.length > 0) {
+      defaultLora = availableLoras[0]; // Anime模型默认选择第一个（gayporn）
     } else {
-      defaultLora = null; // Anime模型或其他情况默认不选择
+      defaultLora = null; // 其他情况默认不选择
     }
     setSelectedLoRA(defaultLora);
     onChange(defaultLora ? { [defaultLora.id]: 1.0 } : {}); // 如果没有默认LoRA，传递空对象
