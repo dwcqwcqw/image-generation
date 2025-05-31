@@ -16,6 +16,7 @@ import runpod
 # AI和图像处理库
 from diffusers import (
     FluxPipeline, 
+    FluxImg2ImgPipeline,  # <-- Add this import
     StableDiffusionPipeline, 
     StableDiffusionImg2ImgPipeline,
     StableDiffusionXLPipeline,  # <-- Add import
@@ -262,25 +263,43 @@ def load_diffusers_model(base_path: str, device: str) -> tuple:
     try:
         if os.path.isdir(base_path):
             print(f"📁 检测到目录，使用from_pretrained加载模型 ({pipeline_class.__name__})")
-            txt2img_pipeline = pipeline_class.from_pretrained(
-                base_path,
-                torch_dtype=torch_dtype,
-                variant=variant if variant else None, #  Ensure variant is not passed if None
-                use_safetensors=True,
-                safety_checker=None,
-                requires_safety_checker=False
-            ).to(device)
+            if pipeline_class == StableDiffusionXLPipeline:
+                txt2img_pipeline = pipeline_class.from_pretrained(
+                    base_path,
+                    torch_dtype=torch_dtype,
+                    variant=variant if variant else None,
+                    use_safetensors=True,
+                    # safety_checker, requires_safety_checker not valid for SDXL from_pretrained
+                ).to(device)
+            else:
+                txt2img_pipeline = pipeline_class.from_pretrained(
+                    base_path,
+                    torch_dtype=torch_dtype,
+                    variant=variant if variant else None, 
+                    use_safetensors=True,
+                    safety_checker=None,
+                    requires_safety_checker=False
+                ).to(device)
         else:
             print(f"📄 检测到单文件，使用from_single_file加载 ({pipeline_class.__name__})")
-            txt2img_pipeline = pipeline_class.from_single_file(
-                base_path,
-                torch_dtype=torch_dtype,
-                variant=variant if variant else None, # Ensure variant is not passed if None
-                use_safetensors=True,
-                safety_checker=None,
-                requires_safety_checker=False,
-                load_safety_checker=False 
-            ).to(device)
+            if pipeline_class == StableDiffusionXLPipeline:
+                txt2img_pipeline = pipeline_class.from_single_file(
+                    base_path,
+                    torch_dtype=torch_dtype,
+                    variant=variant if variant else None,
+                    use_safetensors=True,
+                    # safety_checker, requires_safety_checker, load_safety_checker not valid for SDXL from_single_file
+                ).to(device)
+            else:
+                txt2img_pipeline = pipeline_class.from_single_file(
+                    base_path,
+                    torch_dtype=torch_dtype,
+                    variant=variant if variant else None, 
+                    use_safetensors=True,
+                    safety_checker=None,
+                    requires_safety_checker=False,
+                    load_safety_checker=False 
+                ).to(device)
         
         # 优化内存使用
         txt2img_pipeline.enable_attention_slicing()
