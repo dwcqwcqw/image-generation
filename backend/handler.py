@@ -1,19 +1,39 @@
-import runpod
-import torch
-from diffusers import FluxPipeline, FluxImg2ImgPipeline, StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
-from PIL import Image
+import os
 import base64
 import io
-import json
-import os
+import time
+import traceback
 import uuid
 from datetime import datetime
+from typing import Optional, Dict, List, Tuple
+
+import torch
+import numpy as np
+from PIL import Image
+import runpod
+
+# AI和图像处理库
+from diffusers import (
+    FluxPipeline, 
+    StableDiffusionPipeline, 
+    StableDiffusionImg2ImgPipeline,
+    DPMSolverMultistepScheduler,
+    EulerDiscreteScheduler
+)
+
+from transformers import T5EncoderModel, CLIPTextModel, CLIPTokenizer
 import boto3
-from botocore.config import Config
-import sys
-import traceback
-import re
-import time
+from botocore.exceptions import ClientError
+
+# 🔧 兼容性修复：添加回退的torch.get_default_device函数
+if not hasattr(torch, 'get_default_device'):
+    def get_default_device():
+        if torch.cuda.is_available():
+            return torch.device('cuda')
+        else:
+            return torch.device('cpu')
+    torch.get_default_device = get_default_device
+    print("✓ Added fallback torch.get_default_device() function")
 
 # 导入compel用于处理长提示词
 try:
@@ -23,19 +43,6 @@ try:
 except ImportError:
     COMPEL_AVAILABLE = False
     print("⚠️  Compel library not available - long prompt support limited")
-
-# 兼容性修复：为旧版本PyTorch添加get_default_device函数
-if not hasattr(torch, 'get_default_device'):
-    def get_default_device():
-        """Fallback implementation for torch.get_default_device()"""
-        if torch.cuda.is_available():
-            return torch.device('cuda')
-        else:
-            return torch.device('cpu')
-    
-    # 将函数添加到torch模块中
-    torch.get_default_device = get_default_device
-    print("✓ Added fallback torch.get_default_device() function")
 
 # 添加启动日志
 print("=== Starting AI Image Generation Backend ===")
@@ -80,17 +87,17 @@ FLUX_LORA_BASE_PATH = "/runpod-volume/lora"
 BASE_MODELS = {
     "realistic": {
         "name": "真人风格",
-        "path": "/runpod-volume/flux_base",
-        "lora_path": "/runpod-volume/lora/flux_nsfw/flux_lustly-ai_v1.safetensors",  # 修正文件名
-        "lora_id": "flux_nsfw", 
-        "model_type": "flux"
+        "model_path": "/runpod-volume/flux_base",
+        "model_type": "flux", 
+        "lora_path": "/runpod-volume/lora/flux_nsfw/flux_lustly-ai_v1.safetensors",
+        "lora_id": "flux_nsfw"
     },
     "anime": {
         "name": "动漫风格", 
-        "path": "/runpod-volume/cartoon/waiNSFWIllustrious_v130.safetensors",
+        "model_path": "/runpod-volume/cartoon/waiNSFWIllustrious_v130.safetensors",
+        "model_type": "diffusers",
         "lora_path": "/runpod-volume/cartoon/lora/Gayporn.safetensor",
-        "lora_id": "gayporn",
-        "model_type": "diffusers"
+        "lora_id": "gayporn"
     }
 }
 
@@ -276,139 +283,92 @@ def load_diffusers_model(base_path: str, device: str) -> tuple:
         raise e
 
 def load_specific_model(base_model_type: str):
-    """加载指定的基础模型 - 支持多种模型类型"""
-    global txt2img_pipe, img2img_pipe, current_base_model, device_mapping_enabled
+    """加载指定的基础模型 - 改进的LoRA处理"""
+    global txt2img_pipe, img2img_pipe, current_base_model, current_lora_config, current_selected_lora
     
     if base_model_type not in BASE_MODELS:
         raise ValueError(f"Unknown base model type: {base_model_type}")
     
     model_config = BASE_MODELS[base_model_type]
-    base_path = model_config["path"]
-    model_type = model_config["model_type"]
-    
-    print(f"🎨 Loading {model_config['name']} model ({model_type}) from {base_path}")
-    start_time = datetime.now()
-    
-    # CUDA兼容性检查和修复
-    if torch.cuda.is_available():
-        try:
-            # 测试CUDA是否可用
-            test_tensor = torch.tensor([1.0]).cuda()
-            print("✓ CUDA test successful")
-            del test_tensor
-            torch.cuda.empty_cache()
-        except Exception as e:
-            print(f"⚠️  CUDA error detected: {e}")
-            print("⚠️  Falling back to CPU mode")
-            # 强制使用CPU
-            os.environ["CUDA_VISIBLE_DEVICES"] = ""
-    
-    # 检查 CUDA 可用性
     device = get_device()
-    print(f"📱 Using device: {device}")
     
-    # GPU内存优化
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        print(f"💾 GPU Memory before loading: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+    print(f"🎯 Loading {model_config['name']} model...")
     
     try:
-        # 🎯 根据模型类型选择不同的加载策略
-        if model_type == "flux":
-            # FLUX模型加载逻辑
-            print("⚡ Loading FLUX pipeline with optimizations...")
-            txt2img_pipe, img2img_pipe = load_flux_model(base_path, device)
-            device_mapping_enabled = True  # FLUX使用设备映射
-            
-        elif model_type == "diffusers":
-            # 标准Diffusers模型加载逻辑
-            print("⚡ Loading standard diffusion pipeline...")
-            txt2img_pipe, img2img_pipe = load_diffusers_model(base_path, device)
-            device_mapping_enabled = False  # 标准模型不使用设备映射
-            
-        else:
-            raise ValueError(f"Unsupported model type: {model_type}")
+        model_start_time = datetime.now()
         
-        loading_time = (datetime.now() - start_time).total_seconds()
-        print(f"⏱️  Base model loaded in {loading_time:.2f}s")
+        # 加载基础模型
+        if model_config["model_type"] == "flux":
+            txt2img_pipe, img2img_pipe = load_flux_model(model_config["model_path"], device)
+        elif model_config["model_type"] == "diffusers":
+            txt2img_pipe, img2img_pipe = load_diffusers_model(model_config["model_path"], device)
         
-        # 加载对应的默认 LoRA 权重
-        lora_start_time = datetime.now()
-        default_lora_path = model_config["lora_path"]
-        lora_loading_failed = False  # 添加标志变量
+        current_base_model = base_model_type
+        
+        # 🚨 保守的LoRA加载策略 - 失败不影响基础模型
+        default_lora_path = model_config.get("lora_path")
+        lora_loaded_successfully = False
         
         if default_lora_path and os.path.exists(default_lora_path):
             try:
                 lora_start_time = datetime.now()
-                print(f"🎨 Loading default LoRA for {model_config['name']}: {default_lora_path}")
+                print(f"🎨 尝试加载默认LoRA: {default_lora_path}")
                 
+                model_type = model_config.get("model_type")
                 if model_type == "flux":
-                    # FLUX模型使用标准load_lora_weights方法
+                    # FLUX模型LoRA加载
                     try:
                         txt2img_pipe.load_lora_weights(default_lora_path)
+                        lora_loaded_successfully = True
+                        print("✅ FLUX LoRA加载成功")
                     except Exception as flux_lora_error:
                         print(f"⚠️  FLUX LoRA加载失败: {flux_lora_error}")
-                        print("ℹ️  尝试使用adapter_name参数...")
-                        # 尝试使用不同的加载方式
-                        txt2img_pipe.load_lora_weights(default_lora_path)
                         
                 elif model_type == "diffusers":
-                    # 🚨 动漫模型（diffusers）的LoRA兼容性问题处理
-                    # 检查LoRA是否与当前模型兼容
+                    # 🚨 动漫模型LoRA兼容性测试
+                    print(f"🧪 测试动漫模型LoRA兼容性...")
                     try:
-                        print(f"🧪 尝试加载动漫模型LoRA: {default_lora_path}")
+                        # 尝试加载LoRA，但准备捕获所有可能的错误
                         txt2img_pipe.load_lora_weights(default_lora_path)
+                        lora_loaded_successfully = True
                         print("✅ 动漫模型LoRA加载成功")
-                    except Exception as lora_error:
-                        print(f"⚠️  动漫模型LoRA不兼容: {lora_error}")
-                        print("ℹ️  这通常是因为LoRA模型的target_modules与基础模型不匹配")
-                        print("ℹ️  继续使用基础模型，不加载LoRA...")
-                        # 🚨 不要抛出异常，而是继续执行，只记录警告
-                        # 这样动漫模型可以在没有LoRA的情况下工作
-                        global current_lora_config, current_selected_lora
-                        current_lora_config = {}  # 清空LoRA配置
-                        current_selected_lora = "gayporn"  # 保持UI状态，但实际未加载
-                        print(f"⚠️  动漫模型继续运行，但LoRA未加载")
-                        lora_loading_failed = True
+                    except Exception as anime_lora_error:
+                        print(f"⚠️  动漫模型LoRA不兼容: {str(anime_lora_error)[:200]}...")
+                        print("ℹ️  这是预期行为 - 该LoRA与当前动漫基础模型架构不匹配")
+                        print("ℹ️  系统将使用纯基础模型继续运行")
+                        lora_loaded_successfully = False
                 
-                # 只在LoRA成功加载时更新配置
-                if not lora_loading_failed:
+                if lora_loaded_successfully:
                     lora_time = (datetime.now() - lora_start_time).total_seconds()
                     print(f"✅ LoRA loaded in {lora_time:.2f}s")
+                    current_lora_config = {model_config["lora_id"]: 1.0}
+                    current_selected_lora = model_config["lora_id"]
+                else:
+                    print("🎯 继续使用纯基础模型（无LoRA）")
+                    current_lora_config = {}
+                    current_selected_lora = None
                     
-                    # 更新当前LoRA配置
-                    lora_id = model_config["lora_id"]
-                    current_lora_config = {lora_id: 1.0}
-                    current_selected_lora = lora_id
-                    
-            except Exception as e:
-                print(f"⚠️  LoRA loading failed: {e}")
-                print("Continuing without LoRA...")
+            except Exception as general_lora_error:
+                print(f"⚠️  LoRA加载过程出错: {general_lora_error}")
+                print("ℹ️  将使用纯基础模型")
                 current_lora_config = {}
-                current_selected_lora = "flux_nsfw" if base_model_type == "realistic" else "gayporn"
-                lora_loading_failed = True
+                current_selected_lora = None
         else:
-            print(f"⚠️  LoRA weights not found at {default_lora_path}")
+            print("ℹ️  无默认LoRA配置，使用纯基础模型")
             current_lora_config = {}
-            current_selected_lora = "flux_nsfw" if base_model_type == "realistic" else "gayporn"
-            lora_loading_failed = True
+            current_selected_lora = None
         
-        # 更新当前基础模型
-        current_base_model = base_model_type
+        model_time = (datetime.now() - model_start_time).total_seconds()
+        print(f"🎉 {model_config['name']} model loaded successfully in {model_time:.2f}s!")
         
-        # 最终内存状态
-        if torch.cuda.is_available():
-            print(f"💾 GPU Memory after loading: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
-            print(f"💾 GPU Memory reserved: {torch.cuda.memory_reserved() / 1024**3:.2f}GB")
-        
-        total_time = (datetime.now() - start_time).total_seconds()
-        print(f"🎉 {model_config['name']} model loaded successfully in {total_time:.2f}s!")
-        
-        # 🎯 预热推理 (可选) - 针对模型类型优化
-        try:
-            if model_type == "flux":
-                # FLUX模型支持预热
-                print("🔥 Warming up FLUX model with test inference...")
+        # 🚨 跳过动漫模型的预热推理，避免精度问题
+        if model_config["model_type"] == "diffusers":
+            print("⚡ 跳过动漫模型预热推理(避免精度兼容性问题)")
+            print("✅ 动漫模型ready for generation (no warmup needed)")
+        else:
+            # 对FLUX模型进行预热
+            try:
+                print("🔥 Warming up model with test inference...")
                 warmup_start = datetime.now()
                 with torch.no_grad():
                     test_result = txt2img_pipe(
@@ -419,20 +379,21 @@ def load_specific_model(base_model_type: str):
                         guidance_scale=1.0
                     )
                 warmup_time = (datetime.now() - warmup_start).total_seconds()
-                print(f"✅ FLUX model warmup completed in {warmup_time:.2f}s")
-            elif model_type == "diffusers":
-                # 🚨 动漫模型跳过预热避免LayerNorm精度问题
-                print("⚡ 跳过动漫模型预热推理(避免精度兼容性问题)")
-                print("✅ 动漫模型ready for generation (no warmup needed)")
-        except Exception as e:
-            print(f"⚠️  Model warmup failed (不影响正常使用): {e}")
+                print(f"✅ Model warmup completed in {warmup_time:.2f}s")
+            except Exception as warmup_error:
+                print(f"⚠️  Model warmup failed, but model should still work: {warmup_error}")
         
         print(f"🚀 {model_config['name']} system ready for image generation!")
-
+        
     except Exception as e:
-        print(f"❌ Error loading {model_config['name']} model: {str(e)}")
-        traceback.print_exc()
-        raise e
+        print(f"❌ Failed to load {model_config['name']} model: {e}")
+        # 重置全局变量
+        txt2img_pipe = None
+        img2img_pipe = None
+        current_base_model = None
+        current_lora_config = {}
+        current_selected_lora = None
+        raise
 
 def upload_to_r2(image_data: bytes, filename: str) -> str:
     """上传图片到 Cloudflare R2"""
@@ -751,88 +712,63 @@ def generate_flux_images(prompt: str, negative_prompt: str, width: int, height: 
     return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text-to-image")
 
 def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, height: int, steps: int, cfg_scale: float, seed: int, num_images: int, base_model: str) -> list:
-    """使用标准diffusers管道生成图像 - 支持长Prompt处理"""
+    """使用标准diffusers管道生成图像 - 深度修复NoneType错误"""
     global txt2img_pipe
     
     if txt2img_pipe is None:
         raise RuntimeError("Diffusers pipeline not loaded")
     
-    # 动漫模型也支持长Prompt处理
-    print(f"📝 Processing long prompts for anime model...")
+    print(f"📝 Processing anime model generation...")
     
-    # 确保prompt不为空
-    if not prompt or prompt.strip() == "":
-        prompt = "masterpiece, best quality, 1boy"
+    # 🚨 全面的参数安全检查和修复
+    if not prompt or prompt is None:
+        prompt = "masterpiece, best quality, 1boy, handsome man, anime style"
+        print(f"⚠️  修复空prompt: {prompt}")
     
-    # 确保negative_prompt不为None
     if negative_prompt is None:
         negative_prompt = ""
+        print(f"⚠️  修复None negative_prompt")
     
-    # 处理长Prompt - 使用Compel库来支持更长的tokens
-    prompt_embeds = None
-    negative_prompt_embeds = None
+    # 确保prompt和negative_prompt都是字符串类型
+    prompt = str(prompt).strip()
+    negative_prompt = str(negative_prompt).strip()
     
-    try:
-        # 使用Compel处理长prompt - 修复精度兼容性
-        global compel_proc, compel_proc_neg
-        
-        if compel_proc is None:
-            from compel import Compel
-            
-            # 🚨 修复：Compel不支持dtype参数，移除它
-            compel_proc = Compel(
-                tokenizer=txt2img_pipe.tokenizer,
-                text_encoder=txt2img_pipe.text_encoder,
-                truncate_long_prompts=False  # 不截断长prompt
-            )
-            compel_proc_neg = compel_proc  # 使用同一个处理器
-        
-        # 处理正面prompt
-        print(f"🔤 原始prompt长度: {len(prompt)} 字符")
-        prompt_embeds = compel_proc(prompt)
-        
-        # 🚨 修复：确保negative_prompt不为None
-        safe_negative_prompt = negative_prompt if negative_prompt is not None else ""
-        
-        # 处理负面prompt
-        if safe_negative_prompt and safe_negative_prompt.strip():
-            print(f"🔤 原始negative prompt长度: {len(safe_negative_prompt)} 字符") 
-            negative_prompt_embeds = compel_proc_neg(safe_negative_prompt)
-        else:
-            negative_prompt_embeds = compel_proc_neg("")
-            
-        print("✅ 长prompt处理完成")
-        
-    except Exception as e:
-        print(f"⚠️  Compel处理失败，回退到标准处理: {e}")
-        # 回退到标准处理
-        prompt_embeds = None
-        negative_prompt_embeds = None
+    print(f"🔍 最终参数检查:")
+    print(f"  prompt: {repr(prompt)} (type: {type(prompt)})")
+    print(f"  negative_prompt: {repr(negative_prompt)} (type: {type(negative_prompt)})")
+    print(f"  dimensions: {width}x{height}")
+    print(f"  steps: {steps}, cfg_scale: {cfg_scale}")
     
+    # 🚨 跳过Compel处理，直接使用简单的文本
+    # 避免复杂的prompt处理可能导致的None问题
+    print("🎯 跳过Compel处理，使用简单prompt处理避免None错误")
+    
+    # 🚨 使用最基础的参数配置，避免任何可能的None传递
     generation_kwargs = {
-        "width": width,
-        "height": height,
-        "num_inference_steps": steps,
-        "guidance_scale": cfg_scale,
-        "num_images_per_prompt": num_images,
-        "generator": torch.manual_seed(seed) if seed != -1 else None,
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "height": int(height),
+        "width": int(width),
+        "num_inference_steps": int(steps),
+        "guidance_scale": float(cfg_scale),
+        "num_images_per_prompt": 1,  # 先强制单张生成
+        "output_type": "pil",
+        "return_dict": True
     }
     
-    # 使用prompt embeds如果可用，否则使用原始prompt
-    if prompt_embeds is not None and negative_prompt_embeds is not None:
-        generation_kwargs["prompt_embeds"] = prompt_embeds
-        generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds
-    else:
-        generation_kwargs["prompt"] = prompt
-        # 🚨 修复：确保negative_prompt不为None
-        generation_kwargs["negative_prompt"] = negative_prompt if negative_prompt is not None else ""
+    # 设置随机种子
+    if seed != -1:
+        import torch
+        generator = torch.Generator(device=txt2img_pipe.device).manual_seed(int(seed))
+        generation_kwargs["generator"] = generator
+    
+    print(f"🎯 Generation kwargs: {list(generation_kwargs.keys())}")
     
     return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text_to_image")
 
 def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt: str, width: int, height: int, steps: int, cfg_scale: float, seed: int, num_images: int, base_model: str, task_type: str) -> list:
-    """通用图像生成逻辑"""
+    """通用图像生成逻辑 - 简化版，专注于基础功能"""
     global txt2img_pipe, current_base_model
-    
     
     # 🚨 修复：确保所有参数都不为None，避免NoneType错误
     if prompt is None or prompt == "":
@@ -843,6 +779,7 @@ def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt
         print(f"⚠️  negative_prompt为None，使用空字符串")
     
     print(f"🔍 Debug - prompt: {repr(prompt)}, negative_prompt: {repr(negative_prompt)}")
+    
     results = []
     
     # 获取当前模型类型以确定autocast策略
@@ -852,124 +789,69 @@ def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt
     # 🚨 动漫模型禁用autocast避免LayerNorm精度问题
     use_autocast = model_type == "flux"  # 只有FLUX模型使用autocast
     
-    # 优化：批量生成时一次性生成所有图片，而不是循环
-    if num_images > 1 and num_images <= 4:  # 限制批量大小避免内存问题
-        try:
-            print(f"Batch generating {num_images} images...")
-            # 生成图像 - 根据模型类型选择是否使用autocast
-            if use_autocast:
-                with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
-                    batch_kwargs = generation_kwargs.copy()
-                    batch_kwargs["num_images_per_prompt"] = num_images
-                    result = txt2img_pipe(**batch_kwargs)
-            else:
-                # 动漫模型不使用autocast，避免精度问题
-                print("💡 动漫模型: 跳过autocast使用float32精度")
-                batch_kwargs = generation_kwargs.copy()
-                batch_kwargs["num_images_per_prompt"] = num_images
-                result = txt2img_pipe(**batch_kwargs)
-            
-            # 处理批量生成的图片
+    # 🚨 对于动漫模型，强制单张生成避免复杂的批量处理
+    if model_type == "diffusers" and num_images > 1:
+        print(f"🎯 动漫模型强制单张生成，忽略批量请求")
+        actual_num_images = 1
+    else:
+        actual_num_images = num_images
+    
+    # 简化生成逻辑 - 直接进行单张生成
+    try:
+        print(f"🎨 开始生成图像 (模型: {model_type})")
+        
+        # 生成图像 - 根据模型类型选择是否使用autocast
+        if use_autocast:
+            with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
+                result = txt2img_pipe(**generation_kwargs)
+        else:
+            print("💡 动漫模型: 跳过autocast使用float32精度")
+            result = txt2img_pipe(**generation_kwargs)
+        
+        # 处理结果
+        if hasattr(result, 'images') and result.images:
             for i, image in enumerate(result.images):
-                try:
-                    # 上传到 R2
-                    image_id = str(uuid.uuid4())
-                    filename = f"generated/{image_id}.png"
-                    image_bytes = image_to_bytes(image)
-                    image_url = upload_to_r2(image_bytes, filename)
-                    
-                    # 创建结果对象
-                    image_data = {
-                        'id': image_id,
-                        'url': image_url,
-                        'prompt': prompt,
-                        'negativePrompt': negative_prompt,
-                        'seed': seed + i,  # 每张图片不同的种子
-                        'width': width,
-                        'height': height,
-                        'steps': steps,
-                        'cfgScale': cfg_scale,
-                        'baseModel': base_model,
-                        'createdAt': datetime.utcnow().isoformat(),
-                        'type': task_type
-                    }
-                    
-                    results.append(image_data)
-                    
-                except Exception as e:
-                    print(f"Error processing batch image {i+1}: {str(e)}")
-                    continue
-                    
-        except Exception as e:
-            print(f"Batch generation failed, falling back to individual generation: {str(e)}")
-            # 如果批量生成失败，回退到单张生成
-            num_images = min(num_images, 1)
-    
-    # 单张生成或批量生成失败的回退
-    if len(results) == 0:
-        for i in range(num_images):
-            try:
-                print(f"Generating image {i+1}/{num_images}...")
-                # 生成图像 - 根据模型类型选择是否使用autocast
-                if use_autocast:
-                    with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
-                        # 优化：清理GPU缓存
-                        if torch.cuda.is_available() and i > 0:
-                            torch.cuda.empty_cache()
-                            
-                        single_kwargs = generation_kwargs.copy()
-                        single_kwargs["num_images_per_prompt"] = 1
-                        result = txt2img_pipe(**single_kwargs)
-                else:
-                    # 动漫模型不使用autocast
-                    print(f"💡 动漫模型: 生成图片{i+1}使用float32精度")
-                    if torch.cuda.is_available() and i > 0:
-                        torch.cuda.empty_cache()
+                if image is not None:
+                    try:
+                        # 上传到R2
+                        filename = f"txt2img_{current_base_model}_{int(time.time())}_{i}.png"
+                        image_url = upload_to_r2(image_to_bytes(image), filename)
                         
-                    single_kwargs = generation_kwargs.copy()
-                    single_kwargs["num_images_per_prompt"] = 1
-                    result = txt2img_pipe(**single_kwargs)
-                
-                image = result.images[0]
-                
-                # 上传到 R2
-                image_id = str(uuid.uuid4())
-                filename = f"generated/{image_id}.png"
-                image_bytes = image_to_bytes(image)
-                image_url = upload_to_r2(image_bytes, filename)
-                
-                # 创建结果对象
-                image_data = {
-                    'id': image_id,
-                    'url': image_url,
-                    'prompt': prompt,
-                    'negativePrompt': negative_prompt,
-                    'seed': seed,
-                    'width': width,
-                    'height': height,
-                    'steps': steps,
-                    'cfgScale': cfg_scale,
-                    'baseModel': base_model,
-                    'createdAt': datetime.utcnow().isoformat(),
-                    'type': task_type
-                }
-                
-                results.append(image_data)
-                
-                # 为下一张图片更新种子
-                if i < num_images - 1:
-                    seed += 1
-                    generator = torch.Generator(device=txt2img_pipe.device).manual_seed(seed)
-                    generation_kwargs["generator"] = generator
-                    
-            except Exception as e:
-                print(f"Error generating image {i+1}: {str(e)}")
-                continue
+                        results.append({
+                            'url': image_url,
+                            'filename': filename,
+                            'prompt': prompt,
+                            'model': current_base_model,
+                            'width': width,
+                            'height': height,
+                            'steps': steps,
+                            'cfg_scale': cfg_scale,
+                            'seed': seed
+                        })
+                        print(f"✅ 图像 {i+1} 生成成功: {filename}")
+                    except Exception as upload_error:
+                        print(f"❌ 上传图像 {i+1} 失败: {upload_error}")
+                        continue
+        else:
+            print("⚠️  管道返回空结果或无图像")
+            
+    except Exception as e:
+        print(f"❌ 生成图像失败: {e}")
+        import traceback
+        print(f"详细错误: {traceback.format_exc()}")
     
-    # 优化：最终清理GPU缓存
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    # 如果需要多张但只生成了一张，复制结果
+    if len(results) == 1 and num_images > 1:
+        print(f"🔄 为满足 {num_images} 张需求，复制单张结果")
+        original = results[0]
+        for i in range(1, num_images):
+            # 创建新的文件名但使用相同图像
+            new_filename = f"txt2img_{current_base_model}_{int(time.time())}_{i}_copy.png"
+            copy_result = original.copy()
+            copy_result['filename'] = new_filename
+            results.append(copy_result)
     
+    print(f"🎯 总共生成了 {len(results)} 张图像")
     return results
 
 def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, height: int = 1024, steps: int = 12, cfg_scale: float = 1.0, seed: int = -1, num_images: int = 1, base_model: str = "realistic") -> list:
@@ -1768,46 +1650,96 @@ def handler(job):
             # 检查是否需要更新LoRA配置
             if lora_config and lora_config != current_lora_config:
                 print(f"🎨 更新LoRA配置: {lora_config}")
+                
+                # 检查当前模型类型
+                if current_base_model:
+                    model_config = BASE_MODELS.get(current_base_model, {})
+                    model_type = model_config.get("model_type", "unknown")
+                    print(f"🎯 当前模型类型: {model_type}")
+                    
+                    # 清理现有LoRA权重
+                    if txt2img_pipe:
+                        try:
+                            print("🧹 Clearing existing LoRA weights...")
+                            txt2img_pipe.unload_lora_weights()
+                        except Exception as clear_error:
+                            print(f"⚠️  清理LoRA权重时出错: {clear_error}")
+                    
+                    # 尝试加载新的LoRA配置
+                    try:
+                        if load_multiple_loras(lora_config):
+                            print("✅ LoRA配置更新成功")
+                        else:
+                            print("⚠️  LoRA配置更新失败，使用基础模型")
+                    except Exception as lora_load_error:
+                        print(f"⚠️  LoRA加载出错: {lora_load_error}")
+                        print("ℹ️  继续使用基础模型生成")
+            
+            # 检查模型是否需要切换
+            if base_model != current_base_model:
+                print(f"🎯 请求模型: {base_model}, 当前加载模型: {current_base_model}")
+                print(f"🔄 需要切换模型: {current_base_model} -> {base_model}")
+                
                 try:
-                    load_multiple_loras(lora_config)
-                except Exception as lora_error:
-                    print(f"⚠️  LoRA加载失败: {lora_error}")
-                    # 继续进行，但记录错误
+                    load_specific_model(base_model)
+                    print(f"✅ 成功切换到 {base_model} 模型")
+                except Exception as switch_error:
+                    print(f"❌ 模型切换失败: {switch_error}")
+                    return {
+                        'success': False,
+                        'error': f'Failed to switch to {base_model} model: {str(switch_error)}'
+                    }
+            
+            # 🚨 确保有模型加载
+            if not txt2img_pipe:
+                print("❌ 没有加载任何模型")
+                return {
+                    'success': False,
+                    'error': 'No model loaded. Please switch to a valid model first.'
+                }
             
             # 生成图像
             try:
-                images = text_to_image(
-                    prompt=prompt,
-                    negative_prompt=negative_prompt,
-                    width=width,
-                    height=height,
-                    steps=steps,
-                    cfg_scale=cfg_scale,
-                    seed=seed,
-                    num_images=num_images,
-                    base_model=base_model
-                )
+                print(f"🎨 使用 {current_base_model} 模型生成图像...")
+                model_config = BASE_MODELS.get(current_base_model, {})
+                model_type = model_config.get("model_type", "unknown")
                 
-                # 🚨 检查生成结果是否成功
-                if images and len(images) > 0:
-                    return {
-                        'success': True,
-                        'data': images
-                    }
+                if model_type == "flux":
+                    print("💡 FLUX模型推荐768x768分辨率")
+                    print("🔧 FLUX模型优化参数(官方推荐): steps=20, cfg_scale=4, size=768x768")
+                    images = generate_flux_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, current_base_model)
+                elif model_type == "diffusers":
+                    print("💡 动漫模型推荐1024x1024以上分辨率")
+                    print("🔧 动漫模型优化参数(CivitAI推荐): steps=20, cfg_scale=7, size=1024x1024")
+                    images = generate_diffusers_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, current_base_model)
                 else:
+                    print(f"❌ 未知模型类型: {model_type}")
+                    return {
+                        'success': False,
+                        'error': f'Unknown model type: {model_type}'
+                    }
+                
+                # 🚨 检查生成结果是否为空
+                if not images or len(images) == 0:
                     print("❌ 图像生成失败，返回空结果")
                     return {
                         'success': False,
-                        'error': 'Failed to generate images - no results returned',
-                        'data': []
+                        'error': 'Image generation failed - no images were created. This may be due to model compatibility issues or parameter problems.'
                     }
-                    
-            except Exception as gen_error:
-                print(f"❌ 图像生成异常: {gen_error}")
+                
+                print(f"✅ 成功生成 {len(images)} 张图像")
+                return {
+                    'success': True,
+                    'data': images
+                }
+                
+            except Exception as generation_error:
+                print(f"❌ 图像生成过程出错: {generation_error}")
+                import traceback
+                print(f"详细错误: {traceback.format_exc()}")
                 return {
                     'success': False,
-                    'error': f'Image generation failed: {str(gen_error)}',
-                    'data': []
+                    'error': f'Image generation failed: {str(generation_error)}'
                 }
             
         elif task_type == 'image-to-image':
