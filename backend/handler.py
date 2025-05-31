@@ -18,6 +18,8 @@ from diffusers import (
     FluxPipeline, 
     StableDiffusionPipeline, 
     StableDiffusionImg2ImgPipeline,
+    StableDiffusionXLPipeline,  # <-- Add import
+    StableDiffusionXLImg2ImgPipeline,  # <-- Add import
     DPMSolverMultistepScheduler,
     EulerDiscreteScheduler
 )
@@ -236,65 +238,88 @@ def load_diffusers_model(base_path: str, device: str) -> tuple:
     """加载标准diffusers模型 - 支持SDXL目录加载"""
     print(f"🎨 Loading diffusers model from {base_path}")
     
-    # 🚨 强制使用float32避免LayerNormKernelImpl错误
-    torch_dtype = torch.float32
-    print(f"💡 使用float32精度避免LayerNorm兼容性问题")
+    model_filename = os.path.basename(base_path)
+    is_anime_nsfw_model = model_filename == "Anime_NSFW.safetensors"
+
+    if is_anime_nsfw_model:
+        print(f"💡 特定配置: 为 {model_filename} 使用 StableDiffusionXLPipeline 和 float16")
+        torch_dtype = torch.float16
+        variant = "fp16"
+        pipeline_class = StableDiffusionXLPipeline
+        img2img_pipeline_class = StableDiffusionXLImg2ImgPipeline
+        # 暂时禁用offload以匹配notebook行为，后续可根据内存情况调整
+        enable_offload = False 
+    else:
+        print(f"💡 标准配置: 为 {model_filename} 使用 StableDiffusionPipeline 和 float32 (兼容性优先)")
+        torch_dtype = torch.float32
+        variant = None # variant不用于通用SDPipeline或目录加载
+        pipeline_class = StableDiffusionPipeline
+        img2img_pipeline_class = StableDiffusionImg2ImgPipeline
+        enable_offload = True # 对其他模型保持offload
+
+    print(f"💡 使用 {torch_dtype} 精度加载模型")
     
     try:
-        # 检查是否为目录（SDXL模型）或单文件
         if os.path.isdir(base_path):
-            print(f"📁 检测到目录，使用from_pretrained加载SDXL模型")
-            # 加载SDXL模型目录
-            txt2img_pipeline = StableDiffusionPipeline.from_pretrained(
+            print(f"📁 检测到目录，使用from_pretrained加载模型 ({pipeline_class.__name__})")
+            txt2img_pipeline = pipeline_class.from_pretrained(
                 base_path,
                 torch_dtype=torch_dtype,
+                variant=variant if variant else None, #  Ensure variant is not passed if None
                 use_safetensors=True,
                 safety_checker=None,
                 requires_safety_checker=False
             ).to(device)
         else:
-            print(f"📄 检测到单文件，使用from_single_file加载")
-            # 加载单个模型文件
-            txt2img_pipeline = StableDiffusionPipeline.from_single_file(
+            print(f"📄 检测到单文件，使用from_single_file加载 ({pipeline_class.__name__})")
+            txt2img_pipeline = pipeline_class.from_single_file(
                 base_path,
                 torch_dtype=torch_dtype,
+                variant=variant if variant else None, # Ensure variant is not passed if None
                 use_safetensors=True,
                 safety_checker=None,
                 requires_safety_checker=False,
-                load_safety_checker=False
+                load_safety_checker=False 
             ).to(device)
         
         # 优化内存使用
         txt2img_pipeline.enable_attention_slicing()
-        txt2img_pipeline.enable_model_cpu_offload()
-        
-        # 创建图像到图像管道（共享组件）
-        img2img_pipeline = StableDiffusionImg2ImgPipeline(
+        if enable_offload:
+            print("📦 启用模型CPU Offload")
+            txt2img_pipeline.enable_model_cpu_offload()
+        else:
+            print("🚫 模型CPU Offload已禁用 (特定于Anime_NSFW.safetensors测试)")
+
+        img2img_pipeline = img2img_pipeline_class(
             vae=txt2img_pipeline.vae,
-            text_encoder=txt2img_pipeline.text_encoder,
-            tokenizer=txt2img_pipeline.tokenizer,
+            text_encoder=getattr(txt2img_pipeline, 'text_encoder', None), # XL has text_encoder & text_encoder_2
+            text_encoder_2=getattr(txt2img_pipeline, 'text_encoder_2', None), # Handle missing for non-XL
+            tokenizer=getattr(txt2img_pipeline, 'tokenizer', None),
+            tokenizer_2=getattr(txt2img_pipeline, 'tokenizer_2', None),
             unet=txt2img_pipeline.unet,
             scheduler=txt2img_pipeline.scheduler,
-            safety_checker=None,  # 禁用安全检查器
+            safety_checker=None,
             feature_extractor=getattr(txt2img_pipeline, 'feature_extractor', None),
             requires_safety_checker=False
         ).to(device)
         
-        # 🚨 额外确保安全检查器被禁用
         txt2img_pipeline.safety_checker = None
         txt2img_pipeline.requires_safety_checker = False
         img2img_pipeline.safety_checker = None
         img2img_pipeline.requires_safety_checker = False
         
-        # 同样的优化
         img2img_pipeline.enable_attention_slicing()
-        img2img_pipeline.enable_model_cpu_offload()
+        if enable_offload: # Apply to img2img pipe as well
+             print("📦 为img2img管道启用模型CPU Offload")
+             img2img_pipeline.enable_model_cpu_offload()
+        else:
+            print("🚫 img2img管道模型CPU Offload已禁用")
         
-        print(f"✅ SDXL模型加载成功: {base_path}")
+        print(f"✅ {pipeline_class.__name__} 模型加载成功: {base_path}")
         return txt2img_pipeline, img2img_pipeline
         
     except Exception as e:
-        print(f"❌ Error loading diffusers model: {str(e)}")
+        print(f"❌ Error loading diffusers model ({pipeline_class.__name__}): {str(e)}")
         raise e
 
 def load_specific_model(base_model_type: str):
@@ -928,33 +953,33 @@ def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, hei
         return generate_flux_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model)
         
     elif model_type == "diffusers":
-        # 动漫模型参数优化 - 根据CivitAI官方推荐
-        # WAI-NSFW-illustrious-SDXL推荐: Steps: 15-30, CFG scale: 5-7, 1024x1024以上
+        # 动漫模型参数优化 - 根据CivitAI官方推荐 和 您的notebook测试
+        # WAI-NSFW-illustrious-SDXL(Anime_NSFW.safetensors)推荐: Steps: 15-30, CFG scale: 5-7, 1024x1024以上
+        # 您的notebook: steps=30, cfg_scale=7.5
+        # 强制使用float16精度已在load_diffusers_model中处理
         
         if cfg_scale < 5.0:
-            print(f"⚠️  动漫模型CFG过低 ({cfg_scale})，调整为6.0 (官方推荐5-7)")
-            cfg_scale = 6.0
-        elif cfg_scale > 8.0:
-            print(f"⚠️  动漫模型CFG过高 ({cfg_scale})，调整为7.0 (官方推荐5-7)")
+            print(f"⚠️  动漫模型CFG过低 ({cfg_scale})，调整为7.0 (推荐5-7.5)")
             cfg_scale = 7.0
-            
+        elif cfg_scale > 8.0:
+            print(f"⚠️  动漫模型CFG过高 ({cfg_scale})，调整为7.5 (推荐5-7.5)")
+            cfg_scale = 7.5
+        
         if steps < 15:
-            print(f"⚠️  动漫模型steps过低 ({steps})，调整为20 (官方推荐15-30)")
-            steps = 20
+            print(f"⚠️  动漫模型steps过低 ({steps})，调整为25 (推荐15-30)")
+            steps = 25
         elif steps > 35:
-            print(f"⚠️  动漫模型steps过高 ({steps})，调整为30 (官方推荐15-30)")
+            print(f"⚠️  动漫模型steps过高 ({steps})，调整为30 (推荐15-30)")
             steps = 30
-            
+        
         # 确保使用1024x1024以上分辨率
         if width < 1024 or height < 1024:
-            print("💡 动漫模型推荐1024x1024以上分辨率")
-            if width < 1024:
-                width = 1024
-            if height < 1024:
-                height = 1024
-            
-        print(f"🔧 动漫模型优化参数(CivitAI推荐): steps={steps}, cfg_scale={cfg_scale}, size={width}x{height}")
-        return generate_diffusers_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model)
+            print(f"💡 动漫模型 ({current_base_model}) 推荐1024x1024以上分辨率, 当前: {width}x{height}. 自动调整为1024x1024.")
+            width = 1024
+            height = 1024
+        
+        print(f"🔧 动漫模型优化参数: steps={steps}, cfg_scale={cfg_scale}, size={width}x{height}")
+        return generate_diffusers_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, current_base_model)
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
 
