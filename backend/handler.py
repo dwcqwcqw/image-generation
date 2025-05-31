@@ -25,6 +25,7 @@ from diffusers import (
 from transformers import T5EncoderModel, CLIPTextModel, CLIPTokenizer
 import boto3
 from botocore.exceptions import ClientError
+from botocore.client import Config # 添加Config导入
 
 # 🔧 兼容性修复：添加回退的torch.get_default_device函数
 if not hasattr(torch, 'get_default_device'):
@@ -97,8 +98,8 @@ BASE_MODELS = {
         "name": "动漫风格", 
         "model_path": "/runpod-volume/cartoon/sdxl-base-1.0",
         "model_type": "diffusers",
-        "lora_path": "/runpod-volume/cartoon/lora/Anime_NSFW",
-        "lora_id": "anime_nsfw"
+        "lora_path": None,  # 移除不兼容的LoRA路径
+        "lora_id": None     # 移除不兼容的LoRA ID
     }
 }
 
@@ -113,7 +114,7 @@ img2img_pipe = None
 current_lora_config = DEFAULT_LORA_CONFIG.copy()
 current_base_model = None  # 初始化时不预加载任何模型
 device_mapping_enabled = False  # Track if device mapping is used
-current_selected_lora = "anime_nsfw"  # 当前选择的单个LoRA（默认为动漫NSFW）
+current_selected_lora = "flux_nsfw"  # 恢复为FLUX NSFW作为默认，因为动漫模型现在无默认LoRA
 
 # 全局变量存储compel处理器
 compel_proc = None
@@ -767,7 +768,9 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
         "guidance_scale": float(cfg_scale),
         "num_images_per_prompt": 1,  # 先强制单张生成
         "output_type": "pil",
-        "return_dict": True
+        "return_dict": True,
+        # SDXL模型可能需要added_cond_kwargs，即使为空字典也比None安全
+        "added_cond_kwargs": {} 
     }
     
     # 设置随机种子
@@ -1325,7 +1328,7 @@ def get_loras_by_base_model() -> dict:
             {"id": "cum_on_face", "name": "Cum on Face", "description": "颜射主题内容生成"}
         ],
         "anime": [
-            {"id": "anime_nsfw", "name": "Anime NSFW", "description": "动漫NSFW内容生成模型（默认）"},
+            {"id": "anime_nsfw", "name": "Anime NSFW", "description": "动漫NSFW内容生成模型（可能不兼容）"},
             {"id": "gayporn", "name": "Gayporn", "description": "男同动漫风格内容生成"},
             {"id": "blowjob_handjob", "name": "Blowjob Handjob", "description": "口交和手交动漫内容"},
             {"id": "furry", "name": "Furry", "description": "兽人风格动漫内容"},
@@ -1337,7 +1340,7 @@ def get_loras_by_base_model() -> dict:
         ],
         "current_selected": {
             "realistic": current_selected_lora if current_base_model == "realistic" else "flux_nsfw",
-            "anime": "anime_nsfw" if current_base_model == "anime" else "anime_nsfw"  # 默认为anime_nsfw
+            "anime": None  # 动漫模型默认不选择LoRA
         }
     }
 
