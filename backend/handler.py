@@ -259,6 +259,12 @@ def load_diffusers_model(base_path: str, device: str) -> tuple:
             requires_safety_checker=False
         ).to(device)
         
+        # 🚨 额外确保安全检查器被禁用
+        txt2img_pipeline.safety_checker = None
+        txt2img_pipeline.requires_safety_checker = False
+        img2img_pipeline.safety_checker = None
+        img2img_pipeline.requires_safety_checker = False
+        
         # 同样的优化
         img2img_pipeline.enable_attention_slicing()
         img2img_pipeline.enable_model_cpu_offload()
@@ -827,6 +833,16 @@ def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt
     """通用图像生成逻辑"""
     global txt2img_pipe, current_base_model
     
+    
+    # 🚨 修复：确保所有参数都不为None，避免NoneType错误
+    if prompt is None or prompt == "":
+        prompt = "masterpiece, best quality, 1boy"
+        print(f"⚠️  空prompt，使用默认: {prompt}")
+    if negative_prompt is None:
+        negative_prompt = ""
+        print(f"⚠️  negative_prompt为None，使用空字符串")
+    
+    print(f"🔍 Debug - prompt: {repr(prompt)}, negative_prompt: {repr(negative_prompt)}")
     results = []
     
     # 获取当前模型类型以确定autocast策略
@@ -1900,8 +1916,15 @@ LORA_FILE_PATTERNS = {
     "blowjob": ["blowjob.safetensors", "Blowjob.safetensors", "blow_job.safetensors"],
     "cum_on_face": ["cumonface.safetensors", "cum_on_face.safetensors", "CumOnFace.safetensors"],
     
-    # 动漫风格LoRA - 修复文件扩展名
-    "gayporn": ["Gayporn.safetensor", "Gayporn.safetensors", "gayporn.safetensors", "GayPorn.safetensors"]
+    # 动漫风格LoRA - 包含新增的LoRA
+    "gayporn": ["Gayporn.safetensor", "Gayporn.safetensors", "gayporn.safetensors", "GayPorn.safetensors"],
+    "blowjob_handjob": ["Blowjob_Handjob.safetensors", "blowjob_handjob.safetensors", "BlowjobHandjob.safetensors"],
+    "furry": ["Furry.safetensors", "furry.safetensors", "FURRY.safetensors"],
+    "sex_slave": ["Sex_slave.safetensors", "sex_slave.safetensors", "SexSlave.safetensors"],
+    "comic": ["comic.safetensors", "Comic.safetensors", "COMIC.safetensors"],
+    "glory_wall": ["glory_wall.safetensors", "Glory_wall.safetensors", "GloryWall.safetensors"],
+    "multiple_views": ["multiple_views.safetensors", "Multiple_views.safetensors", "MultipleViews.safetensors"],
+    "pet_play": ["pet_play.safetensors", "Pet_play.safetensors", "PetPlay.safetensors"]
 }
 
 def find_lora_file(lora_id: str, base_model: str) -> str:
@@ -1947,3 +1970,13 @@ def find_lora_file(lora_id: str, base_model: str) -> str:
 # AVAILABLE_LORAS = None
 # LORAS_LAST_SCAN = 0
 # LORAS_CACHE_DURATION = 300  # 5分钟缓存
+# 动漫模型新增LoRA列表
+ANIME_ADDITIONAL_LORAS = {
+    "blowjob_handjob": "/runpod-volume/cartoon/lora/Blowjob_Handjob.safetensors",
+    "furry": "/runpod-volume/cartoon/lora/Furry.safetensors", 
+    "sex_slave": "/runpod-volume/cartoon/lora/Sex_slave.safetensors",
+    "comic": "/runpod-volume/cartoon/lora/comic.safetensors",
+    "glory_wall": "/runpod-volume/cartoon/lora/glory_wall.safetensors",
+    "multiple_views": "/runpod-volume/cartoon/lora/multiple_views.safetensors",
+    "pet_play": "/runpod-volume/cartoon/lora/pet_play.safetensors"
+}

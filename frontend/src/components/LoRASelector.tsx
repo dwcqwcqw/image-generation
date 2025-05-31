@@ -36,7 +36,14 @@ const STATIC_LORAS = {
     { id: 'cum_on_face', name: 'Cum on Face', description: '颜射主题内容生成' }
   ],
   anime: [
-    { id: 'gayporn', name: 'Gayporn', description: '男同动漫风格内容生成' }
+    { id: 'gayporn', name: 'Gayporn', description: '男同动漫风格内容生成' },
+    { id: 'blowjob_handjob', name: 'Blowjob & Handjob', description: '口交和手交动漫风格' },
+    { id: 'furry', name: 'Furry', description: '兽人动漫风格内容' },
+    { id: 'sex_slave', name: 'Sex Slave', description: '性奴动漫风格内容' },
+    { id: 'comic', name: 'Comic', description: '漫画风格内容生成' },
+    { id: 'glory_wall', name: 'Glory Wall', description: '荣耀洞动漫风格内容' },
+    { id: 'multiple_views', name: 'Multiple Views', description: '多视角动漫风格内容' },
+    { id: 'pet_play', name: 'Pet Play', description: '宠物扮演动漫风格内容' }
   ]
 }
 
