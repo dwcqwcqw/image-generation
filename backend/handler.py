@@ -95,10 +95,10 @@ BASE_MODELS = {
     },
     "anime": {
         "name": "动漫风格", 
-        "model_path": "/runpod-volume/cartoon/waiNSFWIllustrious_v130.safetensors",
+        "model_path": "/runpod-volume/cartoon/sdxl-base-1.0",
         "model_type": "diffusers",
-        "lora_path": "/runpod-volume/cartoon/lora/Gayporn.safetensor",
-        "lora_id": "gayporn"
+        "lora_path": "/runpod-volume/cartoon/lora/Anime_NSFW",
+        "lora_id": "anime_nsfw"
     }
 }
 
@@ -113,7 +113,7 @@ img2img_pipe = None
 current_lora_config = DEFAULT_LORA_CONFIG.copy()
 current_base_model = None  # 初始化时不预加载任何模型
 device_mapping_enabled = False  # Track if device mapping is used
-current_selected_lora = "flux_nsfw"  # 当前选择的单个LoRA（用于真人风格）
+current_selected_lora = "anime_nsfw"  # 当前选择的单个LoRA（默认为动漫NSFW）
 
 # 全局变量存储compel处理器
 compel_proc = None
@@ -232,24 +232,36 @@ def load_flux_model(base_path: str, device: str) -> tuple:
     return txt2img_pipe, img2img_pipe
 
 def load_diffusers_model(base_path: str, device: str) -> tuple:
-    """加载标准diffusers模型 - 修复LayerNorm Half精度兼容性"""
+    """加载标准diffusers模型 - 支持SDXL目录加载"""
     print(f"🎨 Loading diffusers model from {base_path}")
     
     # 🚨 强制使用float32避免LayerNormKernelImpl错误
-    # WAI-NSFW-illustrious-SDXL模型在某些LayerNorm操作上不支持Half精度
     torch_dtype = torch.float32
     print(f"💡 使用float32精度避免LayerNorm兼容性问题")
     
     try:
-        # 加载主要文本到图像管道
-        txt2img_pipeline = StableDiffusionPipeline.from_single_file(
-            base_path,
-            torch_dtype=torch_dtype,
-            use_safetensors=True,
-            safety_checker=None,  # 禁用安全检查器以避免兼容性问题
-            requires_safety_checker=False,
-            load_safety_checker=False
-        ).to(device)
+        # 检查是否为目录（SDXL模型）或单文件
+        if os.path.isdir(base_path):
+            print(f"📁 检测到目录，使用from_pretrained加载SDXL模型")
+            # 加载SDXL模型目录
+            txt2img_pipeline = StableDiffusionPipeline.from_pretrained(
+                base_path,
+                torch_dtype=torch_dtype,
+                use_safetensors=True,
+                safety_checker=None,
+                requires_safety_checker=False
+            ).to(device)
+        else:
+            print(f"📄 检测到单文件，使用from_single_file加载")
+            # 加载单个模型文件
+            txt2img_pipeline = StableDiffusionPipeline.from_single_file(
+                base_path,
+                torch_dtype=torch_dtype,
+                use_safetensors=True,
+                safety_checker=None,
+                requires_safety_checker=False,
+                load_safety_checker=False
+            ).to(device)
         
         # 优化内存使用
         txt2img_pipeline.enable_attention_slicing()
@@ -277,6 +289,7 @@ def load_diffusers_model(base_path: str, device: str) -> tuple:
         img2img_pipeline.enable_attention_slicing()
         img2img_pipeline.enable_model_cpu_offload()
         
+        print(f"✅ SDXL模型加载成功: {base_path}")
         return txt2img_pipeline, img2img_pipeline
         
     except Exception as e:
@@ -1312,11 +1325,19 @@ def get_loras_by_base_model() -> dict:
             {"id": "cum_on_face", "name": "Cum on Face", "description": "颜射主题内容生成"}
         ],
         "anime": [
-            {"id": "gayporn", "name": "Gayporn", "description": "男同动漫风格内容生成"}
+            {"id": "anime_nsfw", "name": "Anime NSFW", "description": "动漫NSFW内容生成模型（默认）"},
+            {"id": "gayporn", "name": "Gayporn", "description": "男同动漫风格内容生成"},
+            {"id": "blowjob_handjob", "name": "Blowjob Handjob", "description": "口交和手交动漫内容"},
+            {"id": "furry", "name": "Furry", "description": "兽人风格动漫内容"},
+            {"id": "sex_slave", "name": "Sex Slave", "description": "性奴主题动漫内容"},
+            {"id": "comic", "name": "Comic", "description": "漫画风格内容生成"},
+            {"id": "glory_wall", "name": "Glory Wall", "description": "荣耀墙主题内容"},
+            {"id": "multiple_views", "name": "Multiple Views", "description": "多视角动漫内容"},
+            {"id": "pet_play", "name": "Pet Play", "description": "宠物扮演主题内容"}
         ],
         "current_selected": {
             "realistic": current_selected_lora if current_base_model == "realistic" else "flux_nsfw",
-            "anime": "gayporn" if current_base_model == "anime" else "gayporn"
+            "anime": "anime_nsfw" if current_base_model == "anime" else "anime_nsfw"  # 默认为anime_nsfw
         }
     }
 
@@ -1849,7 +1870,8 @@ LORA_FILE_PATTERNS = {
     "blowjob": ["blowjob.safetensors", "Blowjob.safetensors", "blow_job.safetensors"],
     "cum_on_face": ["cumonface.safetensors", "cum_on_face.safetensors", "CumOnFace.safetensors"],
     
-    # 动漫风格LoRA - 包含新增的LoRA
+    # 动漫风格LoRA - 更新配置
+    "anime_nsfw": ["Anime_NSFW", "Anime_NSFW.safetensors", "anime_nsfw.safetensors", "AnimeNSFW.safetensors"],
     "gayporn": ["Gayporn.safetensor", "Gayporn.safetensors", "gayporn.safetensors", "GayPorn.safetensors"],
     "blowjob_handjob": ["Blowjob_Handjob.safetensors", "blowjob_handjob.safetensors", "BlowjobHandjob.safetensors"],
     "furry": ["Furry.safetensors", "furry.safetensors", "FURRY.safetensors"],
