@@ -329,60 +329,63 @@ def load_specific_model(base_model_type: str):
         # 加载对应的默认 LoRA 权重
         lora_start_time = datetime.now()
         default_lora_path = model_config["lora_path"]
-        if os.path.exists(default_lora_path):
-            print(f"🎨 Loading default LoRA for {model_config['name']}: {default_lora_path}")
+        lora_loading_failed = False  # 添加标志变量
+        
+        if default_lora_path and os.path.exists(default_lora_path):
             try:
-                # 🎯 针对不同模型类型使用不同的LoRA加载策略
+                lora_start_time = datetime.now()
+                print(f"🎨 Loading default LoRA for {model_config['name']}: {default_lora_path}")
+                
                 if model_type == "flux":
-                    # FLUX模型使用HuggingFace推荐的LoRA加载方式
-                    # 参考: https://huggingface.co/lustlyai/Flux_Lustly.ai_Uncensored_nsfw_v1
+                    # FLUX模型使用标准load_lora_weights方法
                     try:
-                        if os.path.isfile(default_lora_path):
-                            # 直接加载.safetensors文件
-                            txt2img_pipe.load_lora_weights(
-                                os.path.dirname(default_lora_path),
-                                weight_name=os.path.basename(default_lora_path),
-                                adapter_name="v1"
-                            )
-                            txt2img_pipe.set_adapters(["v1"], adapter_weights=[1.0])
-                        else:
-                            # 加载目录形式的LoRA
-                            txt2img_pipe.load_lora_weights(default_lora_path, adapter_name="v1")
-                            txt2img_pipe.set_adapters(["v1"], adapter_weights=[1.0])
+                        txt2img_pipe.load_lora_weights(default_lora_path)
                     except Exception as flux_lora_error:
                         print(f"⚠️  FLUX LoRA加载失败: {flux_lora_error}")
-                        print("ℹ️  尝试备用加载方式...")
+                        print("ℹ️  尝试使用adapter_name参数...")
+                        # 尝试使用不同的加载方式
                         txt2img_pipe.load_lora_weights(default_lora_path)
                         
                 elif model_type == "diffusers":
                     # 🚨 动漫模型（diffusers）的LoRA兼容性问题处理
                     # 检查LoRA是否与当前模型兼容
                     try:
+                        print(f"🧪 尝试加载动漫模型LoRA: {default_lora_path}")
                         txt2img_pipe.load_lora_weights(default_lora_path)
+                        print("✅ 动漫模型LoRA加载成功")
                     except Exception as lora_error:
                         print(f"⚠️  动漫模型LoRA不兼容: {lora_error}")
                         print("ℹ️  这通常是因为LoRA模型的target_modules与基础模型不匹配")
                         print("ℹ️  继续使用基础模型，不加载LoRA...")
-                        raise lora_error  # 重新抛出以触发下面的异常处理
-                        
-                lora_time = (datetime.now() - lora_start_time).total_seconds()
-                print(f"✅ LoRA loaded in {lora_time:.2f}s")
+                        # 🚨 不要抛出异常，而是继续执行，只记录警告
+                        # 这样动漫模型可以在没有LoRA的情况下工作
+                        global current_lora_config, current_selected_lora
+                        current_lora_config = {}  # 清空LoRA配置
+                        current_selected_lora = "gayporn"  # 保持UI状态，但实际未加载
+                        print(f"⚠️  动漫模型继续运行，但LoRA未加载")
+                        lora_loading_failed = True
                 
-                # 更新当前LoRA配置
-                global current_lora_config, current_selected_lora
-                lora_id = model_config["lora_id"]
-                current_lora_config = {lora_id: 1.0}
-                current_selected_lora = lora_id
-                
+                # 只在LoRA成功加载时更新配置
+                if not lora_loading_failed:
+                    lora_time = (datetime.now() - lora_start_time).total_seconds()
+                    print(f"✅ LoRA loaded in {lora_time:.2f}s")
+                    
+                    # 更新当前LoRA配置
+                    lora_id = model_config["lora_id"]
+                    current_lora_config = {lora_id: 1.0}
+                    current_selected_lora = lora_id
+                    
             except Exception as e:
                 print(f"⚠️  LoRA loading failed: {e}")
                 print("Continuing without LoRA...")
                 current_lora_config = {}
                 current_selected_lora = "flux_nsfw" if base_model_type == "realistic" else "gayporn"
+                lora_loading_failed = True
         else:
             print(f"⚠️  LoRA weights not found at {default_lora_path}")
             current_lora_config = {}
             current_selected_lora = "flux_nsfw" if base_model_type == "realistic" else "gayporn"
+            lora_loading_failed = True
         
         # 更新当前基础模型
         current_base_model = base_model_type
@@ -770,12 +773,11 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
         if compel_proc is None:
             from compel import Compel
             
-            # 🚨 确保Compel使用与模型相同的精度(float32)
+            # 🚨 修复：Compel不支持dtype参数，移除它
             compel_proc = Compel(
                 tokenizer=txt2img_pipe.tokenizer,
                 text_encoder=txt2img_pipe.text_encoder,
-                truncate_long_prompts=False,  # 不截断长prompt
-                dtype=torch.float32  # 强制使用float32避免精度不匹配
+                truncate_long_prompts=False  # 不截断长prompt
             )
             compel_proc_neg = compel_proc  # 使用同一个处理器
         
@@ -783,10 +785,13 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
         print(f"🔤 原始prompt长度: {len(prompt)} 字符")
         prompt_embeds = compel_proc(prompt)
         
+        # 🚨 修复：确保negative_prompt不为None
+        safe_negative_prompt = negative_prompt if negative_prompt is not None else ""
+        
         # 处理负面prompt
-        if negative_prompt and negative_prompt.strip():
-            print(f"🔤 原始negative prompt长度: {len(negative_prompt)} 字符") 
-            negative_prompt_embeds = compel_proc_neg(negative_prompt)
+        if safe_negative_prompt and safe_negative_prompt.strip():
+            print(f"🔤 原始negative prompt长度: {len(safe_negative_prompt)} 字符") 
+            negative_prompt_embeds = compel_proc_neg(safe_negative_prompt)
         else:
             negative_prompt_embeds = compel_proc_neg("")
             
@@ -813,7 +818,8 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
         generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds
     else:
         generation_kwargs["prompt"] = prompt
-        generation_kwargs["negative_prompt"] = negative_prompt if negative_prompt else ""
+        # 🚨 修复：确保negative_prompt不为None
+        generation_kwargs["negative_prompt"] = negative_prompt if negative_prompt is not None else ""
     
     return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text_to_image")
 
@@ -1746,24 +1752,47 @@ def handler(job):
             # 检查是否需要更新LoRA配置
             if lora_config and lora_config != current_lora_config:
                 print(f"🎨 更新LoRA配置: {lora_config}")
-                load_multiple_loras(lora_config)
+                try:
+                    load_multiple_loras(lora_config)
+                except Exception as lora_error:
+                    print(f"⚠️  LoRA加载失败: {lora_error}")
+                    # 继续进行，但记录错误
             
             # 生成图像
-            images = text_to_image(
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                width=width,
-                height=height,
-                steps=steps,
-                cfg_scale=cfg_scale,
-                seed=seed,
-                num_images=num_images,
-                base_model=base_model
-            )
-            return {
-                'success': True,
-                'data': images
-            }
+            try:
+                images = text_to_image(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    width=width,
+                    height=height,
+                    steps=steps,
+                    cfg_scale=cfg_scale,
+                    seed=seed,
+                    num_images=num_images,
+                    base_model=base_model
+                )
+                
+                # 🚨 检查生成结果是否成功
+                if images and len(images) > 0:
+                    return {
+                        'success': True,
+                        'data': images
+                    }
+                else:
+                    print("❌ 图像生成失败，返回空结果")
+                    return {
+                        'success': False,
+                        'error': 'Failed to generate images - no results returned',
+                        'data': []
+                    }
+                    
+            except Exception as gen_error:
+                print(f"❌ 图像生成异常: {gen_error}")
+                return {
+                    'success': False,
+                    'error': f'Image generation failed: {str(gen_error)}',
+                    'data': []
+                }
             
         elif task_type == 'image-to-image':
             # 图像转图像生成 - 修复参数提取
