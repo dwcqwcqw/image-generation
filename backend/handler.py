@@ -224,11 +224,13 @@ def load_flux_model(base_path: str, device: str) -> tuple:
     return txt2img_pipe, img2img_pipe
 
 def load_diffusers_model(base_path: str, device: str) -> tuple:
-    """加载标准diffusers模型 - 修复动漫模型兼容性"""
+    """加载标准diffusers模型 - 修复LayerNorm Half精度兼容性"""
     print(f"🎨 Loading diffusers model from {base_path}")
     
-    # 动漫模型使用float16以获得更好的性能
-    torch_dtype = torch.float16 if device == "cuda" else torch.float32
+    # 🚨 强制使用float32避免LayerNormKernelImpl错误
+    # WAI-NSFW-illustrious-SDXL模型在某些LayerNorm操作上不支持Half精度
+    torch_dtype = torch.float32
+    print(f"💡 使用float32精度避免LayerNorm兼容性问题")
     
     try:
         # 加载主要文本到图像管道
@@ -393,21 +395,26 @@ def load_specific_model(base_model_type: str):
         total_time = (datetime.now() - start_time).total_seconds()
         print(f"🎉 {model_config['name']} model loaded successfully in {total_time:.2f}s!")
         
-        # 🎯 预热推理 (可选)
+        # 🎯 预热推理 (可选) - 针对模型类型优化
         try:
-            print("🔥 Warming up models with test inference...")
-            warmup_start = datetime.now()
-            with torch.no_grad():
-                # 小尺寸预热推理
-                test_result = txt2img_pipe(
-                    prompt="test",
-                    width=512,
-                    height=512,
-                    num_inference_steps=1,
-                    guidance_scale=1.0 if model_type == "flux" else 7.5
-                )
-            warmup_time = (datetime.now() - warmup_start).total_seconds()
-            print(f"✅ Model warmup completed in {warmup_time:.2f}s")
+            if model_type == "flux":
+                # FLUX模型支持预热
+                print("🔥 Warming up FLUX model with test inference...")
+                warmup_start = datetime.now()
+                with torch.no_grad():
+                    test_result = txt2img_pipe(
+                        prompt="test",
+                        width=512,
+                        height=512,
+                        num_inference_steps=1,
+                        guidance_scale=1.0
+                    )
+                warmup_time = (datetime.now() - warmup_start).total_seconds()
+                print(f"✅ FLUX model warmup completed in {warmup_time:.2f}s")
+            elif model_type == "diffusers":
+                # 🚨 动漫模型跳过预热避免LayerNorm精度问题
+                print("⚡ 跳过动漫模型预热推理(避免精度兼容性问题)")
+                print("✅ 动漫模型ready for generation (no warmup needed)")
         except Exception as e:
             print(f"⚠️  Model warmup failed (不影响正常使用): {e}")
         
@@ -757,15 +764,18 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
     negative_prompt_embeds = None
     
     try:
-        # 使用Compel处理长prompt
+        # 使用Compel处理长prompt - 修复精度兼容性
         global compel_proc, compel_proc_neg
         
         if compel_proc is None:
             from compel import Compel
+            
+            # 🚨 确保Compel使用与模型相同的精度(float32)
             compel_proc = Compel(
                 tokenizer=txt2img_pipe.tokenizer,
                 text_encoder=txt2img_pipe.text_encoder,
-                truncate_long_prompts=False  # 不截断长prompt
+                truncate_long_prompts=False,  # 不截断长prompt
+                dtype=torch.float32  # 强制使用float32避免精度不匹配
             )
             compel_proc_neg = compel_proc  # 使用同一个处理器
         
@@ -809,16 +819,30 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
 
 def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt: str, width: int, height: int, steps: int, cfg_scale: float, seed: int, num_images: int, base_model: str, task_type: str) -> list:
     """通用图像生成逻辑"""
-    global txt2img_pipe
+    global txt2img_pipe, current_base_model
     
     results = []
+    
+    # 获取当前模型类型以确定autocast策略
+    model_config = BASE_MODELS.get(current_base_model, {})
+    model_type = model_config.get("model_type", "unknown")
+    
+    # 🚨 动漫模型禁用autocast避免LayerNorm精度问题
+    use_autocast = model_type == "flux"  # 只有FLUX模型使用autocast
     
     # 优化：批量生成时一次性生成所有图片，而不是循环
     if num_images > 1 and num_images <= 4:  # 限制批量大小避免内存问题
         try:
             print(f"Batch generating {num_images} images...")
-            # 生成图像
-            with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
+            # 生成图像 - 根据模型类型选择是否使用autocast
+            if use_autocast:
+                with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
+                    batch_kwargs = generation_kwargs.copy()
+                    batch_kwargs["num_images_per_prompt"] = num_images
+                    result = txt2img_pipe(**batch_kwargs)
+            else:
+                # 动漫模型不使用autocast，避免精度问题
+                print("💡 动漫模型: 跳过autocast使用float32精度")
                 batch_kwargs = generation_kwargs.copy()
                 batch_kwargs["num_images_per_prompt"] = num_images
                 result = txt2img_pipe(**batch_kwargs)
@@ -864,9 +888,19 @@ def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt
         for i in range(num_images):
             try:
                 print(f"Generating image {i+1}/{num_images}...")
-                # 生成图像
-                with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
-                    # 优化：清理GPU缓存
+                # 生成图像 - 根据模型类型选择是否使用autocast
+                if use_autocast:
+                    with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
+                        # 优化：清理GPU缓存
+                        if torch.cuda.is_available() and i > 0:
+                            torch.cuda.empty_cache()
+                            
+                        single_kwargs = generation_kwargs.copy()
+                        single_kwargs["num_images_per_prompt"] = 1
+                        result = txt2img_pipe(**single_kwargs)
+                else:
+                    # 动漫模型不使用autocast
+                    print(f"💡 动漫模型: 生成图片{i+1}使用float32精度")
                     if torch.cuda.is_available() and i > 0:
                         torch.cuda.empty_cache()
                         
@@ -1186,14 +1220,35 @@ def image_to_image(params: dict) -> list:
     generator = torch.Generator(device=img2img_pipe.device).manual_seed(seed)
     generation_kwargs["generator"] = generator
 
+    # 获取当前模型类型以确定autocast策略
+    model_config = BASE_MODELS.get(current_base_model, {})
+    model_type = model_config.get("model_type", "unknown")
+    
+    # 🚨 动漫模型禁用autocast避免LayerNorm精度问题
+    use_autocast = model_type == "flux"  # 只有FLUX模型使用autocast
+
     results = []
     
     # 优化：批量生成时一次性生成所有图片
     if num_images > 1 and num_images <= 4:  # 限制批量大小避免内存问题
         try:
             print(f"Batch generating {num_images} images for img2img...")
-            # 生成图像
-            with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
+            # 生成图像 - 根据模型类型选择是否使用autocast
+            if use_autocast:
+                with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
+                    result = img2img_pipe(
+                        prompt=prompt,
+                        negative_prompt=negative_prompt,
+                        image=source_image,
+                        strength=denoising_strength,
+                        num_inference_steps=steps,
+                        guidance_scale=cfg_scale,
+                        generator=generator,
+                        num_images_per_prompt=num_images
+                    )
+            else:
+                # 动漫模型不使用autocast
+                print("💡 动漫模型img2img: 跳过autocast使用float32精度")
                 result = img2img_pipe(
                     prompt=prompt,
                     negative_prompt=negative_prompt,
@@ -1247,9 +1302,26 @@ def image_to_image(params: dict) -> list:
         for i in range(num_images):
             try:
                 print(f"Generating img2img image {i+1}/{num_images}...")
-                # 生成图像
-                with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
-                    # 优化：清理GPU缓存
+                # 生成图像 - 根据模型类型选择是否使用autocast
+                if use_autocast:
+                    with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
+                        # 优化：清理GPU缓存
+                        if torch.cuda.is_available() and i > 0:
+                            torch.cuda.empty_cache()
+                            
+                        result = img2img_pipe(
+                            prompt=prompt,
+                            negative_prompt=negative_prompt,
+                            image=source_image,
+                            strength=denoising_strength,
+                            num_inference_steps=steps,
+                            guidance_scale=cfg_scale,
+                            generator=generator,
+                            num_images_per_prompt=1
+                        )
+                else:
+                    # 动漫模型不使用autocast
+                    print(f"💡 动漫模型img2img: 生成图片{i+1}使用float32精度")
                     if torch.cuda.is_available() and i > 0:
                         torch.cuda.empty_cache()
                         
