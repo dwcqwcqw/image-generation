@@ -4,6 +4,7 @@ import io
 import time
 import traceback
 import uuid
+import sys  # 添加缺失的sys导入
 from datetime import datetime
 from typing import Optional, Dict, List, Tuple
 
