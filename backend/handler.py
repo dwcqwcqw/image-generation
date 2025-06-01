@@ -686,94 +686,46 @@ def generate_flux_images(prompt: str, negative_prompt: str, width: int, height: 
     try:
         device = get_device()
         
-        # Clear GPU cache before encoding
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            print(f"💾 GPU Memory before encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
-            
-        # Only try to move text encoders to CPU if device mapping is NOT enabled
-        text_encoder_device = None
-        text_encoder_2_device = None
+        # 🚨 修复：简化FLUX长prompt处理，避免device冲突
+        print(f"💾 GPU Memory before encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
         
-        try:
-            if not device_mapping_enabled:
-                print("📦 Manual memory management mode (no device mapping)")
-                # Store original devices and move text encoders to CPU
-                if hasattr(txt2img_pipe, 'text_encoder') and txt2img_pipe.text_encoder is not None:
-                    text_encoder_device = next(txt2img_pipe.text_encoder.parameters()).device
-                    if str(text_encoder_device) != 'cpu':
-                        print("📦 Moving text_encoder to CPU temporarily to save GPU memory...")
-                        txt2img_pipe.text_encoder.to('cpu')
-                        torch.cuda.empty_cache()
-                        
-                if hasattr(txt2img_pipe, 'text_encoder_2') and txt2img_pipe.text_encoder_2 is not None:
-                    text_encoder_2_device = next(txt2img_pipe.text_encoder_2.parameters()).device
-                    if str(text_encoder_2_device) != 'cpu':
-                        print("📦 Moving text_encoder_2 to CPU temporarily to save GPU memory...")
-                        txt2img_pipe.text_encoder_2.to('cpu')
-                        torch.cuda.empty_cache()
-                        print(f"💾 GPU Memory after moving encoders to CPU: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
-            else:
-                print("⚡ Device mapping mode - trusting accelerate for memory management")
-
-            # Encode positive prompt with memory management
-            print("🔤 Encoding positive prompt...")
-            
-            # 🎯 优化长提示词处理：为FLUX双编码器系统优化
-            clip_prompt, t5_prompt = process_long_prompt(prompt)
-            
-            with torch.cuda.amp.autocast(enabled=False):  # Disable autocast to reduce memory
-                prompt_embeds_obj = txt2img_pipe.encode_prompt(
-                    prompt=clip_prompt,    # CLIP编码器使用优化后的prompt（最多77 tokens）
-                    prompt_2=t5_prompt,    # T5编码器使用完整prompt（最多512 tokens）
-                    device=device,
-                    num_images_per_prompt=1 
-                )
-            
-            # Force move embeddings to CPU immediately
-            if hasattr(prompt_embeds_obj, 'prompt_embeds'):
-                prompt_embeds_cpu = prompt_embeds_obj.prompt_embeds.cpu()
-                pooled_prompt_embeds_cpu = prompt_embeds_obj.pooled_prompt_embeds.cpu() if hasattr(prompt_embeds_obj, 'pooled_prompt_embeds') else None
-            else:
-                # Handle tuple case
-                prompt_embeds_cpu = prompt_embeds_obj[0].cpu() if isinstance(prompt_embeds_obj, tuple) else None
-                pooled_prompt_embeds_cpu = prompt_embeds_obj[1].cpu() if isinstance(prompt_embeds_obj, tuple) and len(prompt_embeds_obj) > 1 else None
-            
-            # Clear GPU memory after positive encoding
-            torch.cuda.empty_cache()
-            print(f"💾 GPU Memory after positive encoding (moved to CPU): {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
-
-            print("⚡ Skipping negative prompt embedding encoding (FLUX doesn't support negative_prompt_embeds)")
-            
-        finally:
-            # Restore text encoders to original devices (only if we moved them manually)
-            if not device_mapping_enabled:
-                if text_encoder_device is not None and hasattr(txt2img_pipe, 'text_encoder') and txt2img_pipe.text_encoder is not None:
-                    print(f"📦 Restoring text_encoder to {text_encoder_device}...")
-                    txt2img_pipe.text_encoder.to(text_encoder_device)
-                    
-                if text_encoder_2_device is not None and hasattr(txt2img_pipe, 'text_encoder_2') and txt2img_pipe.text_encoder_2 is not None:
-                    print(f"📦 Restoring text_encoder_2 to {text_encoder_2_device}...")
-                    txt2img_pipe.text_encoder_2.to(text_encoder_2_device)
-            else:
-                print("⚡ Skipping text encoder restoration (device mapping handles placement)")
-                
-            torch.cuda.empty_cache()
-
-        # Now move embeddings back to GPU and assign to generation_kwargs
-        print("🚀 Moving embeddings back to GPU for generation...")
+        # 🎯 优化长提示词处理：为FLUX双编码器系统优化
+        clip_prompt, t5_prompt = process_long_prompt(prompt)
+        print(f"📝 FLUX prompt processing:")
+        print(f"   CLIP prompt: {len(clip_prompt)} chars")
+        print(f"   T5 prompt: {len(t5_prompt)} chars")
         
-        # Move embeddings back to GPU when needed  
-        generation_kwargs["prompt_embeds"] = prompt_embeds_cpu.to(device)
+        # 🚨 修复：直接使用pipeline encode_prompt，不进行CPU/GPU切换
+        with torch.cuda.amp.autocast(enabled=False):
+            prompt_embeds_obj = txt2img_pipe.encode_prompt(
+                prompt=clip_prompt,    # CLIP编码器使用优化后的prompt
+                prompt_2=t5_prompt,    # T5编码器使用完整prompt
+                device=device,
+                num_images_per_prompt=1 
+            )
         
-        if pooled_prompt_embeds_cpu is not None:
-            generation_kwargs["pooled_prompt_embeds"] = pooled_prompt_embeds_cpu.to(device)
+        # 处理embeddings
+        if hasattr(prompt_embeds_obj, 'prompt_embeds'):
+            prompt_embeds = prompt_embeds_obj.prompt_embeds
+            pooled_prompt_embeds = prompt_embeds_obj.pooled_prompt_embeds if hasattr(prompt_embeds_obj, 'pooled_prompt_embeds') else None
+        else:
+            # Handle tuple case
+            prompt_embeds = prompt_embeds_obj[0] if isinstance(prompt_embeds_obj, tuple) else None
+            pooled_prompt_embeds = prompt_embeds_obj[1] if isinstance(prompt_embeds_obj, tuple) and len(prompt_embeds_obj) > 1 else None
+        
+        # 设置embeddings到generation_kwargs
+        if prompt_embeds is not None:
+            generation_kwargs["prompt_embeds"] = prompt_embeds
+            print("✅ FLUX prompt embeddings生成成功")
+        
+        if pooled_prompt_embeds is not None:
+            generation_kwargs["pooled_prompt_embeds"] = pooled_prompt_embeds
+            print("✅ FLUX pooled embeddings生成成功")
 
         # FLUX使用传统的guidance_scale参数
         generation_kwargs["guidance_scale"] = cfg_scale
         print(f"🎛️ Using guidance_scale: {cfg_scale}")
-            
-        print(f"💾 GPU Memory before generation: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+        print(f"💾 GPU Memory after encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
     except Exception as e:
         print(f"⚠️ FLUX pipeline.encode_prompt() failed: {e}. Using raw prompts.")
@@ -823,10 +775,15 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
     processed_negative_prompt = negative_prompt
     
     try:
-        # 检查提示词长度，如果超过75个token，使用Compel处理
-        token_count = len(prompt.split())
-        if token_count > 70:  # 保留一些余量
-            print(f"📏 长提示词检测: ~{token_count} tokens，启用Compel处理")
+        # 🚨 修复：使用更准确的token估算方法
+        # 考虑标点符号、逗号分隔等因素
+        import re
+        token_pattern = r'\w+|[^\w\s]'
+        estimated_tokens = len(re.findall(token_pattern, prompt.lower()))
+        
+        # 更积极地启用Compel：超过50个准确token就使用长prompt处理
+        if estimated_tokens > 50:  # 降低阈值，更准确的token计算
+            print(f"📏 长提示词检测: {estimated_tokens} tokens (准确计算)，启用Compel处理")
             
             from compel import Compel
             # 🚨 修复SDXL Compel参数 - 添加text_encoder_2和pooled支持
@@ -858,7 +815,7 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
             print("✅ 长提示词embeddings生成成功")
             
         else:
-            print(f"📝 普通提示词长度: ~{token_count} tokens，使用标准处理")
+            print(f"📝 普通提示词长度: {estimated_tokens} tokens (准确计算)，使用标准处理")
             # 标准提示词处理
             generation_kwargs = {
                 "prompt": processed_prompt,
