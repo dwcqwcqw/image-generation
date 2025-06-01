@@ -1099,7 +1099,7 @@ def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, hei
         }
 
 def image_to_image(params: dict) -> list:
-    """图生图生成 - 优化版本"""
+    """图生图生成 - 修复版本，支持FLUX和SDXL模型"""
     global img2img_pipe, current_base_model
     
     if img2img_pipe is None:
@@ -1119,324 +1119,197 @@ def image_to_image(params: dict) -> list:
     base_model = params.get('baseModel', 'realistic')
     lora_config = params.get('lora_config', {})
     
+    # 🚨 修复：确保prompt和negative_prompt不为None
+    if prompt is None:
+        prompt = ""
+    if negative_prompt is None:
+        negative_prompt = ""
+    
+    print(f"📝 图生图处理 - 提示词: {len(prompt)} 字符")
+    print(f"📐 图像尺寸: {width}x{height}, 步数: {steps}, CFG: {cfg_scale}")
+    
     # 检查是否需要切换基础模型
     if base_model != current_base_model:
-        print(f"Switching base model for generation: {current_base_model} -> {base_model}")
+        print(f"🔄 图生图切换模型: {current_base_model} -> {base_model}")
         switch_base_model(base_model)
     
     # 检查是否需要更新LoRA配置
     if lora_config and lora_config != current_lora_config:
-        print(f"Updating LoRA config for generation: {lora_config}")
+        print(f"🎨 图生图更新LoRA配置: {lora_config}")
         load_multiple_loras(lora_config)
     
     # 处理输入图像
-    if isinstance(image_data, str):
-        source_image = base64_to_image(image_data)
-    else:
-        raise ValueError("Invalid image data format")
+    try:
+        if isinstance(image_data, str):
+            source_image = base64_to_image(image_data)
+        else:
+            raise ValueError("Invalid image data format")
+    except Exception as e:
+        print(f"❌ 图像解码失败: {e}")
+        raise ValueError(f"Failed to decode input image: {str(e)}")
     
     # 调整图像尺寸
-    source_image = source_image.resize((width, height), Image.Resampling.LANCZOS)
-    
-    # 🎯 长提示词支持 - 全新方法：直接使用FLUX原生处理 (通过 pipeline.encode_prompt)
-    print(f"📝 Processing prompt for Img2Img: {len(prompt)} characters")
-    
-    generation_kwargs = {
-        "image": source_image,
-        # "prompt": prompt, # Replaced by embeds
-        # "negative_prompt": negative_prompt, # Replaced by embeds
-        "width": width, 
-        "height": height,
-        "strength": denoising_strength, # For Img2Img
-        "num_inference_steps": steps,
-        "guidance_scale": cfg_scale,
-        "generator": None,  # 稍后设置
-    }
-
-    # Generate embeds using the pipeline's own encoder for robustness
-    print("🧬 Generating prompt embeddings for Img2Img using pipeline.encode_prompt()...")
     try:
-        device = get_device()
-        
-        # Clear GPU cache before encoding
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            print(f"💾 GPU Memory before img2img encoding: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
-
-        # Only try to move text encoders to CPU if device mapping is NOT enabled
-        # Device mapping conflicts with manual component movement
-        text_encoder_device = None
-        text_encoder_2_device = None
-        
-        try:
-            if not device_mapping_enabled:
-                print("📦 Manual memory management mode for img2img (no device mapping)")
-                # Store original devices and move text encoders to CPU
-                if hasattr(img2img_pipe, 'text_encoder') and img2img_pipe.text_encoder is not None:
-                    text_encoder_device = next(img2img_pipe.text_encoder.parameters()).device
-                    if str(text_encoder_device) != 'cpu':
-                        print("📦 Moving img2img text_encoder to CPU temporarily...")
-                        img2img_pipe.text_encoder.to('cpu')
-                        torch.cuda.empty_cache()
-                        
-                if hasattr(img2img_pipe, 'text_encoder_2') and img2img_pipe.text_encoder_2 is not None:
-                    text_encoder_2_device = next(img2img_pipe.text_encoder_2.parameters()).device
-                    if str(text_encoder_2_device) != 'cpu':
-                        print("📦 Moving img2img text_encoder_2 to CPU temporarily...")
-                        img2img_pipe.text_encoder_2.to('cpu')
-                        torch.cuda.empty_cache()
-                        print(f"💾 GPU Memory after moving img2img encoders to CPU: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
-            else:
-                print("⚡ Device mapping mode for img2img - trusting accelerate for memory management")
-
-            # Encode positive prompt with memory management
-            print("🔤 Encoding positive prompt for img2img...")
-            
-            # 🎯 优化长提示词处理：为FLUX双编码器系统优化
-            clip_prompt, t5_prompt = process_long_prompt(prompt)
-            # FLUX不需要负提示词嵌入，只处理正提示词
-            
-            with torch.cuda.amp.autocast(enabled=False):
-                prompt_embeds_obj = img2img_pipe.encode_prompt(
-                    prompt=clip_prompt,    # CLIP编码器使用优化后的prompt（最多77 tokens）
-                    prompt_2=t5_prompt,    # T5编码器使用完整prompt（最多512 tokens）
-                    device=device,
-                    num_images_per_prompt=1
-                )
-            
-            # Force move embeddings to CPU immediately
-            if hasattr(prompt_embeds_obj, 'prompt_embeds'):
-                prompt_embeds_cpu = prompt_embeds_obj.prompt_embeds.cpu()
-                pooled_prompt_embeds_cpu = prompt_embeds_obj.pooled_prompt_embeds.cpu() if hasattr(prompt_embeds_obj, 'pooled_prompt_embeds') else None
-            else:
-                prompt_embeds_cpu = prompt_embeds_obj[0].cpu() if isinstance(prompt_embeds_obj, tuple) else None
-                pooled_prompt_embeds_cpu = prompt_embeds_obj[1].cpu() if isinstance(prompt_embeds_obj, tuple) and len(prompt_embeds_obj) > 1 else None
-            
-            # Clear cache after positive encoding
-            torch.cuda.empty_cache()
-            print(f"💾 GPU Memory after positive img2img encoding (moved to CPU): {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
-
-            # ❌ 跳过负提示词嵌入编码，FLUX不支持
-            print("⚡ Skipping negative prompt embedding encoding for img2img (FLUX doesn't support negative_prompt_embeds)")
-            
-        finally:
-            # Restore text encoders to original devices (only if we moved them manually)
-            if not device_mapping_enabled:
-                if text_encoder_device is not None and hasattr(img2img_pipe, 'text_encoder') and img2img_pipe.text_encoder is not None:
-                    print(f"📦 Restoring img2img text_encoder to {text_encoder_device}...")
-                    img2img_pipe.text_encoder.to(text_encoder_device)
-                    
-                if text_encoder_2_device is not None and hasattr(img2img_pipe, 'text_encoder_2') and img2img_pipe.text_encoder_2 is not None:
-                    print(f"📦 Restoring img2img text_encoder_2 to {text_encoder_2_device}...")
-                    img2img_pipe.text_encoder_2.to(text_encoder_2_device)
-            else:
-                print("⚡ Skipping img2img text encoder restoration (device mapping handles placement)")
-                
-            torch.cuda.empty_cache()
-
-        # Now move embeddings back to GPU and assign to generation_kwargs
-        print("🚀 Moving img2img embeddings back to GPU for generation...")
-        
-        # Move embeddings back to GPU when needed
-        generation_kwargs["prompt_embeds"] = prompt_embeds_cpu.to(device)
-        # ❌ FLUX不支持negative_prompt_embeds参数，移除
-        # generation_kwargs["negative_prompt_embeds"] = negative_prompt_embeds_cpu.to(device)
-        
-        if pooled_prompt_embeds_cpu is not None:
-            generation_kwargs["pooled_prompt_embeds"] = pooled_prompt_embeds_cpu.to(device)
-        # ❌ FLUX不支持negative_pooled_prompt_embeds参数，移除  
-        # if negative_pooled_prompt_embeds_cpu is not None:
-        #     generation_kwargs["negative_pooled_prompt_embeds"] = negative_pooled_prompt_embeds_cpu.to(device)
-
-        # FLUX使用传统的guidance_scale参数
-        generation_kwargs["guidance_scale"] = cfg_scale
-        print(f"🎛️ Using guidance_scale: {cfg_scale}")
-            
-        print(f"💾 GPU Memory before generation: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
-
-    except torch.cuda.OutOfMemoryError as oom_error:
-        print(f"❌ CUDA Out of Memory during img2img encode_prompt: {oom_error}")
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            print("🧹 Cleared GPU cache after img2img OOM error")
-        
-        raise RuntimeError(f"GPU memory insufficient for img2img prompt encoding. Please try with shorter prompts or switch to a GPU with more memory. Original error: {oom_error}")
-        
+        source_image = source_image.resize((width, height), Image.Resampling.LANCZOS)
+        print(f"✅ 图像尺寸调整为: {width}x{height}")
     except Exception as e:
-        print(f"⚠️ Img2Img pipeline.encode_prompt() failed: {e}. Traceback follows.")
-        traceback.print_exc()
-        
-        # Clear cache on any error
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        
-        print("Falling back to using raw prompts for Img2Img (this will likely cause the original error).")
-        generation_kwargs["prompt"] = prompt
-        generation_kwargs["negative_prompt"] = negative_prompt
-
+        print(f"❌ 图像尺寸调整失败: {e}")
+        raise ValueError(f"Failed to resize image: {str(e)}")
+    
+    # 获取当前模型类型
+    model_config = BASE_MODELS.get(current_base_model, {})
+    model_type = model_config.get("model_type", "unknown")
+    
+    print(f"🎯 当前模型类型: {model_type}")
+    
     # 设置随机种子
     if seed == -1:
         seed = torch.randint(0, 2**32 - 1, (1,)).item()
     
     generator = torch.Generator(device=img2img_pipe.device).manual_seed(seed)
-    generation_kwargs["generator"] = generator
-
-    # 获取当前模型类型以确定autocast策略
-    model_config = BASE_MODELS.get(current_base_model, {})
-    model_type = model_config.get("model_type", "unknown")
     
-    # 🚨 动漫模型禁用autocast避免LayerNorm精度问题
-    use_autocast = model_type == "flux"  # 只有FLUX模型使用autocast
-
+    # 🚨 根据模型类型使用不同的生成逻辑
     results = []
     
-    # 优化：批量生成时一次性生成所有图片
-    if num_images > 1 and num_images <= 4:  # 限制批量大小避免内存问题
-        try:
-            print(f"Batch generating {num_images} images for img2img...")
-            # 生成图像 - 根据模型类型选择是否使用autocast
-            if use_autocast:
-                with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
+    try:
+        if model_type == "flux":
+            # FLUX模型 - 支持长提示词，不支持negative_prompt
+            print("🎯 使用FLUX图生图管道")
+            
+            # FLUX模型压缩提示词
+            if len(prompt) > 400:  # FLUX可以处理更长的提示词
+                compressed_prompt = compress_prompt_to_77_tokens(prompt, max_tokens=75)
+                print(f"📏 FLUX图生图提示词压缩: {len(prompt)} -> {len(compressed_prompt)} 字符")
+                prompt = compressed_prompt
+            
+            for i in range(num_images):
+                try:
+                    current_seed = seed + i if seed != -1 else torch.randint(0, 2**32 - 1, (1,)).item()
+                    current_generator = torch.Generator(device=img2img_pipe.device).manual_seed(current_seed)
+                    
+                    print(f"🖼️ 生成FLUX图生图 {i+1}/{num_images} (种子: {current_seed})")
+                    
                     result = img2img_pipe(
                         prompt=prompt,
-                        negative_prompt=negative_prompt,
+                        # 注意：FLUX不支持negative_prompt参数
                         image=source_image,
                         strength=denoising_strength,
+                        width=width,
+                        height=height,
                         num_inference_steps=steps,
                         guidance_scale=cfg_scale,
-                        generator=generator,
-                        num_images_per_prompt=num_images
+                        generator=current_generator,
+                        num_images_per_prompt=1
                     )
-            else:
-                # 动漫模型不使用autocast
-                print("💡 动漫模型img2img: 跳过autocast使用float32精度")
-                result = img2img_pipe(
-                    prompt=prompt,
-                    negative_prompt=negative_prompt,
-                    image=source_image,
-                    strength=denoising_strength,
-                    num_inference_steps=steps,
-                    guidance_scale=cfg_scale,
-                    generator=generator,
-                    num_images_per_prompt=num_images
-                )
-            
-            # 处理批量生成的图片
-            for i, image in enumerate(result.images):
-                try:
-                    # 上传到 R2
-                    image_id = str(uuid.uuid4())
-                    filename = f"generated/{image_id}.png"
-                    image_bytes = image_to_bytes(image)
-                    image_url = upload_to_r2(image_bytes, filename)
                     
-                    # 创建结果对象
-                    image_data = {
-                        'id': image_id,
-                        'url': image_url,
-                        'prompt': prompt,
-                        'negativePrompt': negative_prompt,
-                        'seed': seed + i,
-                        'width': width,
-                        'height': height,
-                        'steps': steps,
-                        'cfgScale': cfg_scale,
-                        'baseModel': base_model,
-                        'createdAt': datetime.utcnow().isoformat(),
-                        'type': 'image-to-image',
-                        'denoisingStrength': denoising_strength
-                    }
-                    
-                    results.append(image_data)
-                    
+                    if hasattr(result, 'images') and len(result.images) > 0:
+                        image = result.images[0]
+                        # 上传到R2
+                        image_id = str(uuid.uuid4())
+                        image_bytes = image_to_bytes(image)
+                        image_url = upload_to_r2(image_bytes, f"{image_id}.jpg")
+                        
+                        results.append({
+                            'image_id': image_id,
+                            'image_url': image_url,
+                            'seed': current_seed
+                        })
+                        print(f"✅ FLUX图生图 {i+1} 生成成功: {image_url}")
+                    else:
+                        print(f"❌ FLUX图生图 {i+1} 生成失败：无图像结果")
+                        
                 except Exception as e:
-                    print(f"Error processing batch img2img image {i+1}: {str(e)}")
+                    print(f"❌ FLUX图生图 {i+1} 生成失败: {e}")
                     continue
                     
-        except Exception as e:
-            print(f"Batch img2img generation failed, falling back to individual generation: {str(e)}")
-            # 如果批量生成失败，回退到单张生成
-            num_images = min(num_images, 1)
-    
-    # 单张生成或批量生成失败的回退
-    if len(results) == 0:
-        for i in range(num_images):
-            try:
-                print(f"Generating img2img image {i+1}/{num_images}...")
-                # 生成图像 - 根据模型类型选择是否使用autocast
-                if use_autocast:
-                    with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
-                        # 优化：清理GPU缓存
-                        if torch.cuda.is_available() and i > 0:
-                            torch.cuda.empty_cache()
-                            
+        elif model_type == "diffusers":
+            # SDXL/标准diffusers模型
+            print("🎯 使用标准Diffusers图生图管道")
+            
+            # 压缩提示词
+            if len(prompt) > 200:
+                compressed_prompt = compress_prompt_to_77_tokens(prompt, max_tokens=75)
+                print(f"📏 Diffusers图生图提示词压缩: {len(prompt)} -> {len(compressed_prompt)} 字符")
+                prompt = compressed_prompt
+                
+            if len(negative_prompt) > 200:
+                compressed_negative = compress_prompt_to_77_tokens(negative_prompt, max_tokens=75)
+                print(f"📏 Diffusers图生图负面提示词压缩: {len(negative_prompt)} -> {len(compressed_negative)} 字符")
+                negative_prompt = compressed_negative
+            
+            # 🚨 动漫模型禁用autocast避免LayerNorm精度问题
+            use_autocast = model_type == "flux"  # 只有FLUX模型使用autocast
+            
+            for i in range(num_images):
+                try:
+                    current_seed = seed + i if seed != -1 else torch.randint(0, 2**32 - 1, (1,)).item()
+                    current_generator = torch.Generator(device=img2img_pipe.device).manual_seed(current_seed)
+                    
+                    print(f"🖼️ 生成Diffusers图生图 {i+1}/{num_images} (种子: {current_seed})")
+                    
+                    # 根据模型类型选择是否使用autocast
+                    if use_autocast:
+                        with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
+                            result = img2img_pipe(
+                                prompt=prompt,
+                                negative_prompt=negative_prompt,
+                                image=source_image,
+                                strength=denoising_strength,
+                                width=width,
+                                height=height,
+                                num_inference_steps=steps,
+                                guidance_scale=cfg_scale,
+                                generator=current_generator,
+                                num_images_per_prompt=1
+                            )
+                    else:
+                        # 动漫模型不使用autocast
+                        print("💡 动漫模型图生图: 使用float32精度")
                         result = img2img_pipe(
                             prompt=prompt,
                             negative_prompt=negative_prompt,
                             image=source_image,
                             strength=denoising_strength,
+                            width=width,
+                            height=height,
                             num_inference_steps=steps,
                             guidance_scale=cfg_scale,
-                            generator=generator,
+                            generator=current_generator,
                             num_images_per_prompt=1
                         )
-                else:
-                    # 动漫模型不使用autocast
-                    print(f"💡 动漫模型img2img: 生成图片{i+1}使用float32精度")
-                    if torch.cuda.is_available() and i > 0:
-                        torch.cuda.empty_cache()
-                        
-                    result = img2img_pipe(
-                        prompt=prompt,
-                        negative_prompt=negative_prompt,
-                        image=source_image,
-                        strength=denoising_strength,
-                        num_inference_steps=steps,
-                        guidance_scale=cfg_scale,
-                        generator=generator,
-                        num_images_per_prompt=1
-                    )
-                
-                image = result.images[0]
-                
-                # 上传到 R2
-                image_id = str(uuid.uuid4())
-                filename = f"generated/{image_id}.png"
-                image_bytes = image_to_bytes(image)
-                image_url = upload_to_r2(image_bytes, filename)
-                
-                # 创建结果对象
-                image_data = {
-                    'id': image_id,
-                    'url': image_url,
-                    'prompt': prompt,
-                    'negativePrompt': negative_prompt,
-                    'seed': seed,
-                    'width': width,
-                    'height': height,
-                    'steps': steps,
-                    'cfgScale': cfg_scale,
-                    'baseModel': base_model,
-                    'createdAt': datetime.utcnow().isoformat(),
-                    'type': 'image-to-image',
-                    'denoisingStrength': denoising_strength
-                }
-                
-                results.append(image_data)
-                
-                # 为下一张图片更新种子
-                if i < num_images - 1:
-                    seed += 1
-                    generator = torch.Generator(device=img2img_pipe.device).manual_seed(seed)
                     
-            except Exception as e:
-                print(f"Error generating img2img image {i+1}: {str(e)}")
-                continue
+                    if hasattr(result, 'images') and len(result.images) > 0:
+                        image = result.images[0]
+                        # 上传到R2
+                        image_id = str(uuid.uuid4())
+                        image_bytes = image_to_bytes(image)
+                        image_url = upload_to_r2(image_bytes, f"{image_id}.jpg")
+                        
+                        results.append({
+                            'image_id': image_id,
+                            'image_url': image_url,
+                            'seed': current_seed
+                        })
+                        print(f"✅ Diffusers图生图 {i+1} 生成成功: {image_url}")
+                    else:
+                        print(f"❌ Diffusers图生图 {i+1} 生成失败：无图像结果")
+                        
+                except Exception as e:
+                    print(f"❌ Diffusers图生图 {i+1} 生成失败: {e}")
+                    continue
+        else:
+            raise ValueError(f"Unsupported model type for image-to-image: {model_type}")
+            
+    except Exception as e:
+        print(f"❌ 图生图生成过程出错: {e}")
+        import traceback
+        print(f"详细错误: {traceback.format_exc()}")
+        raise RuntimeError(f"Image-to-image generation failed: {str(e)}")
     
-    # 优化：最终清理GPU缓存
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    if len(results) == 0:
+        raise RuntimeError("No images were generated successfully")
     
+    print(f"🎉 图生图完成: 成功生成 {len(results)}/{num_images} 张图像")
     return results
 
 def get_available_loras() -> dict:
