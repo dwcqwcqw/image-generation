@@ -1,0 +1,58 @@
+{
+  "ultra_long_test": {
+    "task_type": "text-to-image",
+    "prompt": "masterpiece, best quality, amazing quality, ultra detailed, extremely detailed, \n    professional anime artwork, studio quality illustration, high resolution 4K rendering,\n    handsome muscular warrior man with detailed facial features and expressions, \n    strong defined jawline, piercing blue eyes with detailed iris patterns,\n    detailed flowing hair with individual strand rendering, perfect anatomy proportions,\n    wearing intricate fantasy armor with golden engravings and detailed metalwork,\n    ornate shoulder plates with dragon motifs, detailed chainmail underneath,\n    standing heroically in a mystical enchanted ancient forest setting,\n    warm golden sunlight filtering through massive tree branches and leaves,\n    atmospheric volumetric lighting with god rays and particle effects,\n    magical floating glowing orbs and sparkles in the air around him,\n    detailed background featuring ancient stone ruins covered in glowing magical runes,\n    moss-covered pillars and archways with intricate carvings and weathering,\n    fantasy art style with photorealistic texture work and shading,\n    dynamic powerful heroic pose with confident stance and determined expression,\n    detailed texture work on armor reflecting light and showing wear patterns,\n    rich vibrant colors with perfect color harmony and saturation,\n    detailed shadows and highlights with perfect contrast and depth,\n    cinematic composition with rule of thirds and leading lines,\n    dramatic lighting effects creating mood and atmosphere,\n    photorealistic rendering style with perfect material properties,\n    professional digital art techniques with advanced shading methods",
+    "negativePrompt": "bad quality, worst quality, blur, sketch, monochrome, lowres",
+    "width": 1024,
+    "height": 1024,
+    "steps": 25,
+    "cfgScale": 7.0,
+    "seed": 42,
+    "numImages": 1,
+    "baseModel": "anime",
+    "lora_config": {
+      "multiple_views": 1.0
+    }
+  },
+  "medium_length_test": {
+    "task_type": "text-to-image",
+    "prompt": "masterpiece, best quality, detailed anime illustration, \n    handsome muscular man, detailed facial features, strong jawline, blue eyes,\n    fantasy armor with golden details, heroic pose, mystical forest background,\n    warm lighting, atmospheric effects, professional artwork, high quality",
+    "negativePrompt": "bad quality, worst quality",
+    "width": 1024,
+    "height": 1024,
+    "steps": 25,
+    "cfgScale": 7.0,
+    "seed": 42,
+    "numImages": 1,
+    "baseModel": "anime",
+    "lora_config": {
+      "gayporn": 1.0
+    }
+  },
+  "analyses": {
+    "ultra_analysis": {
+      "total_chars": 1665,
+      "total_tokens": 238,
+      "word_count": 206,
+      "categories": {
+        "artistic": 3,
+        "character": 4,
+        "environment": 5,
+        "style": 4
+      },
+      "complexity_score": 254
+    },
+    "medium_analysis": {
+      "total_chars": 291,
+      "total_tokens": 47,
+      "word_count": 34,
+      "categories": {
+        "artistic": 3,
+        "character": 2,
+        "environment": 2,
+        "style": 2
+      },
+      "complexity_score": 56
+    }
+  }
+}

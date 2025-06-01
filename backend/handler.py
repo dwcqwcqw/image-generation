@@ -779,33 +779,80 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
             
             # 🚨 修复：使用分段处理长prompt，避免截断同时兼容LoRA
             try:
-                # 方法1：尝试使用SDXL管道的encode_prompt方法处理长prompt
-                if hasattr(txt2img_pipe, 'encode_prompt'):
-                    print("🧬 使用SDXL原生encode_prompt处理长prompt...")
+                # 实现真正的长prompt处理：分段编码+合并
+                if estimated_tokens > 75:  # 超过75 tokens需要分段处理
+                    print("🧬 使用分段编码处理超长prompt...")
                     
-                    # SDXL的encode_prompt可以处理长prompt
-                    (
-                        prompt_embeds,
-                        negative_prompt_embeds,
-                        pooled_prompt_embeds,
-                        negative_pooled_prompt_embeds,
-                    ) = txt2img_pipe.encode_prompt(
-                        prompt=processed_prompt,
-                        prompt_2=processed_prompt,  # SDXL需要两个prompt
-                        negative_prompt=processed_negative_prompt,
-                        negative_prompt_2=processed_negative_prompt,
+                    # 分割prompt为多段，每段不超过75 tokens
+                    words = processed_prompt.split()
+                    segments = []
+                    current_segment = []
+                    current_tokens = 0
+                    
+                    token_pattern = r'\w+|[^\w\s]'
+                    for word in words:
+                        word_tokens = len(re.findall(token_pattern, word.lower()))
+                        if current_tokens + word_tokens <= 75:
+                            current_segment.append(word)
+                            current_tokens += word_tokens
+                        else:
+                            if current_segment:
+                                segments.append(' '.join(current_segment))
+                            current_segment = [word]
+                            current_tokens = word_tokens
+                    
+                    if current_segment:
+                        segments.append(' '.join(current_segment))
+                    
+                    print(f"📝 长prompt分为 {len(segments)} 段处理")
+                    
+                    # 为每段生成embeddings
+                    all_prompt_embeds = []
+                    all_pooled_embeds = []
+                    
+                    for i, segment in enumerate(segments):
+                        print(f"🔤 处理段 {i+1}/{len(segments)}: {len(segment)} chars")
+                        
+                        # 使用标准方法为每段生成embeddings
+                        segment_embeds = txt2img_pipe.encode_prompt(
+                            prompt=segment,
+                            prompt_2=segment,
+                            negative_prompt="",
+                            negative_prompt_2="",
+                            num_images_per_prompt=1,
+                            do_classifier_free_guidance=True,
+                            device=txt2img_pipe.device,
+                            clip_skip=None,
+                            lora_scale=None,
+                        )
+                        
+                        # 只保存正向embeddings
+                        all_prompt_embeds.append(segment_embeds[0][:1])  # 只要positive part
+                        all_pooled_embeds.append(segment_embeds[2][:1])   # 只要positive pooled
+                    
+                    # 合并所有段的embeddings - 使用平均值
+                    import torch
+                    combined_prompt_embeds = torch.mean(torch.cat(all_prompt_embeds, dim=0), dim=0, keepdim=True)
+                    combined_pooled_embeds = torch.mean(torch.cat(all_pooled_embeds, dim=0), dim=0, keepdim=True)
+                    
+                    # 生成负向embeddings（使用短的negative prompt）
+                    negative_embeds = txt2img_pipe.encode_prompt(
+                        prompt=processed_negative_prompt,
+                        prompt_2=processed_negative_prompt,
+                        negative_prompt="",
+                        negative_prompt_2="",
                         num_images_per_prompt=1,
-                        do_classifier_free_guidance=True,
+                        do_classifier_free_guidance=False,
                         device=txt2img_pipe.device,
                         clip_skip=None,
-                        lora_scale=None,  # 重要：设置为None避免LoRA冲突
+                        lora_scale=None,
                     )
                     
                     generation_kwargs = {
-                        "prompt_embeds": prompt_embeds,
-                        "negative_prompt_embeds": negative_prompt_embeds,
-                        "pooled_prompt_embeds": pooled_prompt_embeds,
-                        "negative_pooled_prompt_embeds": negative_pooled_prompt_embeds,
+                        "prompt_embeds": combined_prompt_embeds,
+                        "negative_prompt_embeds": negative_embeds[0][:1],
+                        "pooled_prompt_embeds": combined_pooled_embeds,
+                        "negative_pooled_prompt_embeds": negative_embeds[2][:1],
                         "height": int(height),
                         "width": int(width),
                         "num_inference_steps": int(steps),
@@ -814,16 +861,27 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
                         "output_type": "pil",
                         "return_dict": True
                     }
-                    print("✅ 使用SDXL原生长prompt处理（LoRA兼容模式）")
+                    print("✅ 分段长prompt处理完成（LoRA兼容）")
                     
                 else:
-                    raise Exception("管道不支持encode_prompt方法")
+                    # 正常长度的prompt，使用标准处理
+                    generation_kwargs = {
+                        "prompt": processed_prompt,
+                        "negative_prompt": processed_negative_prompt,
+                        "height": int(height),
+                        "width": int(width),
+                        "num_inference_steps": int(steps),
+                        "guidance_scale": float(cfg_scale),
+                        "num_images_per_prompt": 1,
+                        "output_type": "pil",
+                        "return_dict": True
+                    }
+                    print("✅ 标准prompt处理（LoRA兼容）")
                     
-            except Exception as sdxl_error:
-                print(f"⚠️  SDXL原生长prompt处理失败: {sdxl_error}")
-                print("📝 回退到标准处理模式（可能截断）")
+            except Exception as long_prompt_error:
+                print(f"⚠️  分段长prompt处理失败: {long_prompt_error}")
+                print("📝 回退到标准处理模式")
                 
-                # 回退到标准处理，接受可能的截断
                 generation_kwargs = {
                     "prompt": processed_prompt,
                     "negative_prompt": processed_negative_prompt,
@@ -835,7 +893,7 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
                     "output_type": "pil",
                     "return_dict": True
                 }
-                print("✅ 使用标准SDXL处理（可能截断但LoRA兼容）")
+                print("✅ 回退到标准SDXL处理")
             
         elif estimated_tokens > 50:  # 只有在没有LoRA时才使用Compel
             print(f"📏 长提示词检测: {estimated_tokens} tokens (准确计算)，启用Compel处理")
