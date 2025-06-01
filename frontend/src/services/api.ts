@@ -219,26 +219,51 @@ export async function generateTextToImage(params: TextToImageParams, signal?: Ab
 export async function generateImageToImage(params: ImageToImageParams, signal?: AbortSignal): Promise<GeneratedImage[]> {
   try {
     console.log('generateImageToImage called with USE_RUNPOD_DIRECT:', USE_RUNPOD_DIRECT)
-    console.log('Requested LoRA model:', params.lora_model)
-    
-    // 优化：不在前端进行LoRA切换，让后端自动处理
-    // 后端会检查并只在需要时进行切换
+    console.log('Image file info:', params.image instanceof File ? {
+      name: params.image.name,
+      size: params.image.size,
+      type: params.image.type
+    } : 'Not a file')
     
     if (USE_RUNPOD_DIRECT) {
-      // Convert image to base64 for RunPod API
+      // 🚨 修复：图片处理和验证
       let base64Image = ''
       if (params.image instanceof File) {
-        const reader = new FileReader()
-        base64Image = await new Promise((resolve, reject) => {
-          reader.onload = () => {
-            const result = reader.result as string
-            resolve(result.split(',')[1]) // Remove data URL prefix
-          }
-          reader.onerror = reject
-          reader.readAsDataURL(params.image as File)
-        })
+        // 验证图片大小（限制为5MB，避免Cloudflare限制）
+        const MAX_SIZE = 5 * 1024 * 1024 // 5MB
+        if (params.image.size > MAX_SIZE) {
+          throw new Error(`图片太大 (${(params.image.size / 1024 / 1024).toFixed(1)}MB)，请选择小于5MB的图片`)
+        }
+        
+        // 验证图片格式
+        const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+        if (!validTypes.includes(params.image.type)) {
+          throw new Error(`不支持的图片格式: ${params.image.type}，请使用JPG、PNG或WebP格式`)
+        }
+        
+        console.log(`处理图片: ${params.image.name} (${(params.image.size / 1024).toFixed(1)}KB)`)
+        
+        try {
+          // 🚨 修复：更稳定的base64转换
+          const arrayBuffer = await params.image.arrayBuffer()
+          const uint8Array = new Uint8Array(arrayBuffer)
+          const binaryString = Array.from(uint8Array, byte => String.fromCharCode(byte)).join('')
+          base64Image = btoa(binaryString)
+          
+          console.log(`Base64转换成功，长度: ${base64Image.length} 字符`)
+        } catch (conversionError) {
+          console.error('Base64转换失败:', conversionError)
+          throw new Error('图片转换失败，请尝试其他格式或更小的图片')
+        }
+      } else if (typeof params.image === 'string' && params.image.startsWith('data:')) {
+        // 如果已经是data URL，提取base64部分
+        base64Image = params.image.split(',')[1]
+        console.log('使用现有的base64数据')
+      } else {
+        throw new Error('无效的图片数据，请重新选择图片')
       }
 
+      // 🚨 修复：确保参数结构与后端handler函数一致
       const runpodParams = {
         prompt: params.prompt,
         negativePrompt: params.negativePrompt,
@@ -250,17 +275,26 @@ export async function generateImageToImage(params: ImageToImageParams, signal?: 
         seed: params.seed,
         numImages: params.numImages,
         denoisingStrength: params.denoisingStrength,
-        lora_model: params.lora_model, // 传递LoRA模型参数给后端
+        baseModel: params.baseModel,
+        lora_config: params.lora_config || {}, // 确保不为undefined
       }
+
+      console.log('发送到RunPod的参数:', {
+        ...runpodParams,
+        image: `[base64数据，长度: ${runpodParams.image.length}]` // 不打印完整base64
+      })
 
       return await callRunPodAPI('image-to-image', runpodParams, signal)
     }
 
+    // Cloudflare API路由方式（备选）
     const formData = new FormData()
     
     // Add image file
     if (params.image instanceof File) {
       formData.append('image', params.image)
+    } else {
+      throw new Error('Invalid image format for form data')
     }
     
     // Add other parameters
@@ -273,6 +307,7 @@ export async function generateImageToImage(params: ImageToImageParams, signal?: 
     formData.append('seed', params.seed.toString())
     formData.append('numImages', params.numImages.toString())
     formData.append('denoisingStrength', params.denoisingStrength.toString())
+    formData.append('baseModel', params.baseModel)
     
     const response = await api.post<ApiResponse<GeneratedImage[]>>(
       '/generate/image-to-image', 

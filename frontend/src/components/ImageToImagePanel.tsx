@@ -106,21 +106,25 @@ export default function ImageToImagePanel() {
     abortControllerRef.current = abortController
     
     try {
-      // Convert file to base64
-      if (!sourceImage) return
-      
-      const reader = new FileReader()
-      const base64Promise = new Promise<string>((resolve, reject) => {
-        reader.onload = () => resolve(reader.result as string)
-        reader.onerror = reject
-        reader.readAsDataURL(sourceImage)
-      })
-      
-      const base64Image = await base64Promise
+      if (!sourceImage) {
+        throw new Error('请先选择一张源图片')
+      }
+
+      const MAX_SIZE = 5 * 1024 * 1024 // 5MB
+      if (sourceImage.size > MAX_SIZE) {
+        throw new Error(`图片太大 (${(sourceImage.size / 1024 / 1024).toFixed(1)}MB)，请选择小于5MB的图片`)
+      }
+
+      const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+      if (!validTypes.includes(sourceImage.type)) {
+        throw new Error(`不支持的图片格式: ${sourceImage.type}，请使用JPG、PNG或WebP格式`)
+      }
+
+      console.log(`开始处理图片: ${sourceImage.name} (${(sourceImage.size / 1024).toFixed(1)}KB)`)
       
       const requestParams = {
         ...params,
-        image: base64Image
+        image: sourceImage
       }
       
       setGenerationProgress('Generating images...')
