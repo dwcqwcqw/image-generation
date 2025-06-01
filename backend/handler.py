@@ -881,7 +881,8 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
                     'error': 'Image generation failed - no images were created. This may be due to model compatibility issues or parameter problems.'
                 }
             
-            print(f"✅ 成功生成 {len(images)} 张图像")
+            # 删除重复的日志输出 - 已在generate_images_common中统一处理
+            # print(f"✅ 成功生成 {len(images)} 张图像")
             return {
                 'success': True,
                 'data': images
@@ -1009,6 +1010,7 @@ def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt
             print(f"详细错误: {traceback.format_exc()}")
             continue
     
+    # 删除重复的日志输出 - 已在generate_images_common中统一处理
     print(f"🎯 总共成功生成了 {len(results)} 张图像")
     return results
 
@@ -1102,7 +1104,8 @@ def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, hei
                 'error': 'Image generation failed - no images were created. This may be due to model compatibility issues or parameter problems.'
             }
         
-        print(f"✅ 成功生成 {len(images)} 张图像")
+        # 删除重复的日志输出 - 已在generate_images_common中统一处理
+        # print(f"✅ 成功生成 {len(images)} 张图像")
         return {
             'success': True,
             'data': images
@@ -1965,7 +1968,8 @@ def handler(job):
                         'error': 'Image generation failed - no images were created. This may be due to model compatibility issues or parameter problems.'
                     }
                 
-                print(f"✅ 成功生成 {len(images)} 张图像")
+                # 删除重复的日志输出 - 已在generate_images_common中统一处理
+                # print(f"✅ 成功生成 {len(images)} 张图像")
                 return {
                     'success': True,
                     'data': images
