@@ -774,224 +774,31 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
         has_lora = bool(current_lora_config and any(v > 0 for v in current_lora_config.values()))
         
         if has_lora:
-            print(f"⚠️  检测到LoRA配置 {current_lora_config}，使用LoRA兼容的长prompt处理")
-            print(f"📝 长提示词({estimated_tokens} tokens)将使用分段处理，避免截断")
+            print(f"⚠️  检测到LoRA配置 {current_lora_config}，使用智能prompt压缩避免黑图")
+            print(f"📝 原始prompt({estimated_tokens} tokens): {processed_prompt}")
             
-            # 🚨 修复：使用分段处理长prompt，避免截断同时兼容LoRA
-            try:
-                # 实现真正的长prompt处理：分段编码+合并
-                if estimated_tokens > 75:  # 超过75 tokens需要分段处理
-                    print("🧬 使用分段编码处理超长prompt...")
-                    
-                    # 分割prompt为多段，每段不超过75 tokens
-                    words = processed_prompt.split()
-                    segments = []
-                    current_segment = []
-                    current_tokens = 0
-                    
-                    token_pattern = r'\w+|[^\w\s]'
-                    for word in words:
-                        word_tokens = len(re.findall(token_pattern, word.lower()))
-                        if current_tokens + word_tokens <= 75:
-                            current_segment.append(word)
-                            current_tokens += word_tokens
-                        else:
-                            if current_segment:
-                                segments.append(' '.join(current_segment))
-                            current_segment = [word]
-                            current_tokens = word_tokens
-                    
-                    if current_segment:
-                        segments.append(' '.join(current_segment))
-                    
-                    print(f"📝 长prompt分为 {len(segments)} 段处理")
-                    
-                    # 🚨 修复：直接使用tokenizer和text_encoder，绕过encode_prompt的77 token限制
-                    import torch
-                    device = txt2img_pipe.device
-                    
-                    all_prompt_embeds = []
-                    all_pooled_embeds = []
-                    
-                    for i, segment in enumerate(segments):
-                        print(f"🔤 处理段 {i+1}/{len(segments)}: {len(segment)} chars")
-                        
-                        # 直接使用tokenizer，不依赖encode_prompt
-                        # Text Encoder 1 (CLIP)
-                        text_inputs = txt2img_pipe.tokenizer(
-                            segment,
-                            padding="max_length",
-                            max_length=77,  # 明确设置最大长度
-                            truncation=True,  # 允许截断，但我们已经控制了段长度
-                            return_tensors="pt",
-                        )
-                        text_input_ids = text_inputs.input_ids.to(device)
-                        
-                        # Text Encoder 2 (OpenCLIP)
-                        text_inputs_2 = txt2img_pipe.tokenizer_2(
-                            segment,
-                            padding="max_length", 
-                            max_length=77,
-                            truncation=True,
-                            return_tensors="pt",
-                        )
-                        text_input_ids_2 = text_inputs_2.input_ids.to(device)
-                        
-                        # 生成embeddings
-                        with torch.no_grad():
-                            prompt_embeds = txt2img_pipe.text_encoder(text_input_ids)[0]
-                            
-                            # 🚨 修复：正确调用text_encoder_2，参考diffusers标准实现  
-                            text_encoder_2_outputs = txt2img_pipe.text_encoder_2(
-                                text_input_ids_2,
-                                output_hidden_states=True,
-                            )
-                            # text_encoder_2返回: text_embeds, pooled_output, hidden_states
-                            # 我们需要hidden_states[-2] (倒数第二层) 作为prompt_embeds_2
-                            # 而text_embeds作为pooled_prompt_embeds
-                            pooled_prompt_embeds = text_encoder_2_outputs[0]  # text_embeds (pooled output)
-                            prompt_embeds_2 = text_encoder_2_outputs.hidden_states[-2]  # penultimate hidden state
-                        
-                        # 🚨 修复：确保维度匹配再连接
-                        # CLIP输出: [batch_size, seq_len, hidden_size] 
-                        # OpenCLIP输出: [batch_size, seq_len, hidden_size]
-                        print(f"📐 CLIP embeds shape: {prompt_embeds.shape}")
-                        print(f"📐 OpenCLIP embeds shape: {prompt_embeds_2.shape}")
-                        print(f"📐 Pooled embeds shape: {pooled_prompt_embeds.shape}")
-                        
-                        # 连接两个text encoder的输出（确保维度匹配）
-                        if len(prompt_embeds.shape) == len(prompt_embeds_2.shape):
-                            segment_prompt_embeds = torch.concat([prompt_embeds, prompt_embeds_2], dim=-1)
-                        else:
-                            print(f"⚠️  维度不匹配，使用OpenCLIP输出: {prompt_embeds_2.shape}")
-                            segment_prompt_embeds = prompt_embeds_2
-                        
-                        all_prompt_embeds.append(segment_prompt_embeds)
-                        all_pooled_embeds.append(pooled_prompt_embeds)
-                    
-                    # 合并所有段的embeddings - 使用平均值
-                    combined_prompt_embeds = torch.mean(torch.stack(all_prompt_embeds), dim=0)
-                    combined_pooled_embeds = torch.mean(torch.stack(all_pooled_embeds), dim=0)
-                    
-                    # 生成负向embeddings（用相同方法处理negative prompt）
-                    neg_text_inputs = txt2img_pipe.tokenizer(
-                        processed_negative_prompt,
-                        padding="max_length",
-                        max_length=77,
-                        truncation=True,
-                        return_tensors="pt",
-                    )
-                    neg_text_input_ids = neg_text_inputs.input_ids.to(device)
-                    
-                    neg_text_inputs_2 = txt2img_pipe.tokenizer_2(
-                        processed_negative_prompt,
-                        padding="max_length",
-                        max_length=77, 
-                        truncation=True,
-                        return_tensors="pt",
-                    )
-                    neg_text_input_ids_2 = neg_text_inputs_2.input_ids.to(device)
-                    
-                    with torch.no_grad():
-                        neg_prompt_embeds = txt2img_pipe.text_encoder(neg_text_input_ids)[0]
-                        
-                        # 🚨 修复：负向embeddings也使用正确的text_encoder_2调用
-                        neg_text_encoder_2_outputs = txt2img_pipe.text_encoder_2(
-                            neg_text_input_ids_2,
-                            output_hidden_states=True,
-                        )
-                        neg_pooled_prompt_embeds = neg_text_encoder_2_outputs[0]  # text_embeds (pooled output)
-                        neg_prompt_embeds_2 = neg_text_encoder_2_outputs.hidden_states[-2]  # penultimate hidden state
-                    
-                    # 🚨 修复：负向embeddings也要确保维度匹配
-                    if len(neg_prompt_embeds.shape) == len(neg_prompt_embeds_2.shape):
-                        negative_prompt_embeds = torch.concat([neg_prompt_embeds, neg_prompt_embeds_2], dim=-1)
-                    else:
-                        negative_prompt_embeds = neg_prompt_embeds_2
-                    
-                    generation_kwargs = {
-                        "prompt_embeds": combined_prompt_embeds,
-                        "negative_prompt_embeds": negative_prompt_embeds,
-                        "pooled_prompt_embeds": combined_pooled_embeds,
-                        "negative_pooled_prompt_embeds": neg_pooled_prompt_embeds,
-                        "height": int(height),
-                        "width": int(width),
-                        "num_inference_steps": int(steps),
-                        "guidance_scale": float(cfg_scale),
-                        "num_images_per_prompt": 1,
-                        "output_type": "pil",
-                        "return_dict": True
-                    }
-                    print("✅ 真正的分段长prompt处理完成（绕过77 token限制，LoRA兼容）")
-                    
-                else:
-                    # 正常长度的prompt，使用标准处理
-                    generation_kwargs = {
-                        "prompt": processed_prompt,
-                        "negative_prompt": processed_negative_prompt,
-                        "height": int(height),
-                        "width": int(width),
-                        "num_inference_steps": int(steps),
-                        "guidance_scale": float(cfg_scale),
-                        "num_images_per_prompt": 1,
-                        "output_type": "pil",
-                        "return_dict": True
-                    }
-                    print("✅ 标准prompt处理（LoRA兼容）")
-                    
-            except Exception as long_prompt_error:
-                print(f"⚠️  分段长prompt处理失败: {long_prompt_error}")
-                print(f"详细错误: {traceback.format_exc()}")
-                print("📝 回退到标准处理模式")
-                
-                generation_kwargs = {
-                    "prompt": processed_prompt,
-                    "negative_prompt": processed_negative_prompt,
-                    "height": int(height),
-                    "width": int(width),
-                    "num_inference_steps": int(steps),
-                    "guidance_scale": float(cfg_scale),
-                    "num_images_per_prompt": 1,
-                    "output_type": "pil",
-                    "return_dict": True
-                }
-                print("✅ 回退到标准SDXL处理")
-        
-        elif estimated_tokens > 50:  # 只有在没有LoRA时才使用Compel
-            print(f"📏 长提示词检测: {estimated_tokens} tokens (准确计算)，启用Compel处理")
+            # 🚨 修复：使用智能压缩替代复杂的分段处理，避免黑图问题
+            if estimated_tokens > 75:
+                print("🔧 使用智能压缩处理超长prompt...")
+                processed_prompt = compress_prompt_to_77_tokens(processed_prompt, max_tokens=75)
+                print(f"✅ 智能压缩完成，避免黑图问题")
+            else:
+                print("✅ 标准prompt处理（LoRA兼容）")
             
-            from compel import Compel
-            # 🚨 修复SDXL Compel参数 - 添加text_encoder_2和pooled支持
-            compel = Compel(
-                tokenizer=[txt2img_pipe.tokenizer, txt2img_pipe.tokenizer_2],
-                text_encoder=[txt2img_pipe.text_encoder, txt2img_pipe.text_encoder_2],
-                requires_pooled=[False, True]  # SDXL需要pooled embeds
-            )
-            
-            # 生成长提示词的embeddings (包括pooled_prompt_embeds)
-            print("🧬 使用Compel生成长提示词embeddings...")
-            conditioning, pooled_conditioning = compel(prompt)
-            negative_conditioning, negative_pooled_conditioning = compel(negative_prompt) if negative_prompt else (None, None)
-            
-            # 使用预处理的embeddings (包括pooled)
+            # 使用标准处理方式
             generation_kwargs = {
-                "prompt_embeds": conditioning,
-                "negative_prompt_embeds": negative_conditioning,
-                "pooled_prompt_embeds": pooled_conditioning,
-                "negative_pooled_prompt_embeds": negative_pooled_conditioning,
-                "height": int(height),
-                "width": int(width),
-                "num_inference_steps": int(steps),
-                "guidance_scale": float(cfg_scale),
-                "num_images_per_prompt": 1,
-                "output_type": "pil",
-                "return_dict": True
+                'prompt': processed_prompt,
+                'negative_prompt': negative_prompt,
+                'height': height,
+                'width': width,
+                'num_inference_steps': steps,
+                'guidance_scale': cfg_scale,
+                'num_images_per_prompt': 1,
+                'output_type': 'pil',
+                'return_dict': False
             }
-            print("✅ 长提示词embeddings生成成功")
-            
         else:
-            print(f"📝 普通提示词长度: {estimated_tokens} tokens (准确计算)，使用标准处理")
-            # 标准提示词处理
+            # 正常长度的prompt，使用标准处理
             generation_kwargs = {
                 "prompt": processed_prompt,
                 "negative_prompt": processed_negative_prompt,
@@ -1003,10 +810,70 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
                 "output_type": "pil",
                 "return_dict": True
             }
+            print("✅ 标准prompt处理（LoRA兼容）")
             
-    except Exception as compel_error:
-        print(f"⚠️  Compel处理失败: {compel_error}，回退到标准处理")
-        # 回退到标准处理
+            # 使用标准处理方式
+            generation_kwargs = {
+                "prompt": processed_prompt,
+                "negative_prompt": processed_negative_prompt,
+                "height": int(height),
+                "width": int(width),
+                "num_inference_steps": int(steps),
+                "guidance_scale": float(cfg_scale),
+                "num_images_per_prompt": 1,
+                "output_type": "pil",
+                "return_dict": True
+            }
+        
+        # 生成图像
+        try:
+            print(f"🎨 使用 {current_base_model} 模型生成图像...")
+            model_config = BASE_MODELS.get(current_base_model, {})
+            model_type = model_config.get("model_type", "unknown")
+            
+            if model_type == "flux":
+                print("💡 FLUX模型推荐768x768分辨率")
+                print("🔧 FLUX模型优化参数(官方推荐): steps=20, cfg_scale=4, size=768x768")
+                images = generate_flux_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, current_base_model)
+            elif model_type == "diffusers":
+                print("💡 动漫模型推荐1024x1024以上分辨率")
+                print("🔧 动漫模型优化参数(CivitAI推荐): steps=20, cfg_scale=6, size=1024x1024")
+                images = generate_diffusers_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, current_base_model)
+            else:
+                print(f"❌ 未知模型类型: {model_type}")
+                return {
+                    'success': False,
+                    'error': f'Unknown model type: {model_type}'
+                }
+            
+            # 🚨 检查生成结果是否为空
+            if not images or len(images) == 0:
+                print("❌ 图像生成失败，返回空结果")
+                return {
+                    'success': False,
+                    'error': 'Image generation failed - no images were created. This may be due to model compatibility issues or parameter problems.'
+                }
+            
+            print(f"✅ 成功生成 {len(images)} 张图像")
+            return {
+                'success': True,
+                'data': images
+            }
+            
+        except Exception as generation_error:
+            print(f"❌ 图像生成过程出错: {generation_error}")
+            import traceback
+            print(f"详细错误: {traceback.format_exc()}")
+            return {
+                'success': False,
+                'error': f'Image generation failed: {str(generation_error)}'
+            }
+        
+    except Exception as long_prompt_error:
+        print(f"⚠️  分段长prompt处理失败: {long_prompt_error}")
+        print(f"详细错误: {traceback.format_exc()}")
+        print("📝 回退到标准处理模式")
+        
         generation_kwargs = {
             "prompt": processed_prompt,
             "negative_prompt": processed_negative_prompt,
@@ -1018,6 +885,7 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
             "output_type": "pil",
             "return_dict": True
         }
+        print("✅ 回退到标准SDXL处理")
     
     # 种子设置现在在generate_images_common中处理，支持多张不同种子
     print(f"🎯 Generation kwargs: {list(generation_kwargs.keys())}")
@@ -2358,3 +2226,100 @@ def completely_clear_lora_adapters():
         print("🧹 GPU内存已清理")
     
     print("✅ LoRA适配器完全清理完成")
+
+def compress_prompt_to_77_tokens(prompt: str, max_tokens: int = 75) -> str:
+    """
+    智能压缩prompt到指定token数量以内
+    保留最重要的关键词和描述
+    """
+    import re
+    
+    # 计算当前token数量
+    token_pattern = r'\w+|[^\\w\\s]'
+    current_tokens = len(re.findall(token_pattern, prompt.lower()))
+    
+    if current_tokens <= max_tokens:
+        return prompt
+    
+    print(f"🔧 压缩prompt: {current_tokens} tokens -> {max_tokens} tokens")
+    
+    # 定义重要性权重
+    priority_keywords = {
+        # 质量标签 - 最高优先级
+        'quality': ['masterpiece', 'best quality', 'amazing quality', 'high quality', 'ultra quality'],
+        # 主体描述 - 高优先级  
+        'subject': ['man', 'boy', 'male', 'muscular', 'handsome', 'lean', 'naked', 'nude'],
+        # 身体部位 - 中高优先级
+        'anatomy': ['torso', 'chest', 'abs', 'penis', 'erect', 'flaccid', 'body'],
+        # 动作姿态 - 中优先级
+        'pose': ['reclining', 'lying', 'sitting', 'standing', 'pose', 'position'],
+        # 环境道具 - 中优先级
+        'environment': ['bed', 'sheets', 'satin', 'luxurious', 'room', 'background'],
+        # 光影效果 - 低优先级
+        'lighting': ['lighting', 'illuminated', 'soft', 'moody', 'warm', 'cinematic'],
+        # 情感表达 - 低优先级
+        'emotion': ['serene', 'intense', 'confident', 'contemplation', 'allure']
+    }
+    
+    # 分词并分类
+    words = prompt.split()
+    categorized_words = {category: [] for category in priority_keywords.keys()}
+    uncategorized_words = []
+    
+    for word in words:
+        word_lower = word.lower().strip('.,!?;:')
+        categorized = False
+        
+        for category, keywords in priority_keywords.items():
+            if any(keyword in word_lower for keyword in keywords):
+                categorized_words[category].append(word)
+                categorized = True
+                break
+        
+        if not categorized:
+            uncategorized_words.append(word)
+    
+    # 按优先级重建prompt
+    compressed_parts = []
+    remaining_tokens = max_tokens
+    
+    # 优先级顺序
+    priority_order = ['quality', 'subject', 'anatomy', 'pose', 'environment', 'lighting', 'emotion']
+    
+    for category in priority_order:
+        if remaining_tokens <= 0:
+            break
+            
+        category_words = categorized_words[category]
+        if category_words:
+            # 计算这个类别的token数
+            category_text = ' '.join(category_words)
+            category_tokens = len(re.findall(token_pattern, category_text.lower()))
+            
+            if category_tokens <= remaining_tokens:
+                compressed_parts.extend(category_words)
+                remaining_tokens -= category_tokens
+            else:
+                # 部分添加最重要的词
+                for word in category_words:
+                    word_tokens = len(re.findall(token_pattern, word.lower()))
+                    if word_tokens <= remaining_tokens:
+                        compressed_parts.append(word)
+                        remaining_tokens -= word_tokens
+                    else:
+                        break
+    
+    # 如果还有剩余空间，添加未分类的重要词
+    for word in uncategorized_words:
+        if remaining_tokens <= 0:
+            break
+        word_tokens = len(re.findall(token_pattern, word.lower()))
+        if word_tokens <= remaining_tokens:
+            compressed_parts.append(word)
+            remaining_tokens -= word_tokens
+    
+    compressed_prompt = ' '.join(compressed_parts)
+    final_tokens = len(re.findall(token_pattern, compressed_prompt.lower()))
+    
+    print(f"✅ 压缩完成: '{compressed_prompt}' ({final_tokens} tokens)")
+    return compressed_prompt
