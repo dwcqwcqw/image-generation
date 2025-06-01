@@ -769,26 +769,33 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
         token_pattern = r'\w+|[^\w\s]'
         estimated_tokens = len(re.findall(token_pattern, prompt.lower()))
         
-        # 🚨 修复：检查是否加载了LoRA，如果有LoRA则禁用Compel避免兼容性问题
+        # 🚨 修复：检查是否加载了LoRA，如果有LoRA则使用智能压缩避免黑图
         global current_lora_config
         has_lora = bool(current_lora_config and any(v > 0 for v in current_lora_config.values()))
         
         if has_lora:
             print(f"⚠️  检测到LoRA配置 {current_lora_config}，使用智能prompt压缩避免黑图")
-            print(f"📝 原始prompt({estimated_tokens} tokens): {processed_prompt}")
             
-            # 🚨 修复：使用智能压缩替代复杂的分段处理，避免黑图问题
+            # 🚨 修复：压缩正向prompt
             if estimated_tokens > 75:
+                print(f"📝 原始prompt({estimated_tokens} tokens): {processed_prompt[:100]}...")
                 print("🔧 使用智能压缩处理超长prompt...")
                 processed_prompt = compress_prompt_to_77_tokens(processed_prompt, max_tokens=75)
                 print(f"✅ 智能压缩完成，避免黑图问题")
             else:
-                print("✅ 标准prompt处理（LoRA兼容）")
+                print("✅ prompt已在75 token限制内，无需压缩")
+            
+            # 🚨 修复：压缩negative prompt
+            negative_tokens = len(re.findall(r'\w+|[^\w\s]', processed_negative_prompt.lower()))
+            if negative_tokens > 75:
+                print(f"🔧 压缩negative prompt: {negative_tokens} tokens -> 75 tokens")
+                processed_negative_prompt = compress_prompt_to_77_tokens(processed_negative_prompt, max_tokens=75)
+                print(f"✅ negative prompt压缩完成")
             
             # 使用标准处理方式
             generation_kwargs = {
                 'prompt': processed_prompt,
-                'negative_prompt': negative_prompt,
+                'negative_prompt': processed_negative_prompt,
                 'height': height,
                 'width': width,
                 'num_inference_steps': steps,
@@ -798,32 +805,52 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
                 'return_dict': False
             }
         else:
-            # 正常长度的prompt，使用标准处理
-            generation_kwargs = {
-                "prompt": processed_prompt,
-                "negative_prompt": processed_negative_prompt,
-                "height": int(height),
-                "width": int(width),
-                "num_inference_steps": int(steps),
-                "guidance_scale": float(cfg_scale),
-                "num_images_per_prompt": 1,
-                "output_type": "pil",
-                "return_dict": True
-            }
-            print("✅ 标准prompt处理（LoRA兼容）")
-            
-            # 使用标准处理方式
-            generation_kwargs = {
-                "prompt": processed_prompt,
-                "negative_prompt": processed_negative_prompt,
-                "height": int(height),
-                "width": int(width),
-                "num_inference_steps": int(steps),
-                "guidance_scale": float(cfg_scale),
-                "num_images_per_prompt": 1,
-                "output_type": "pil",
-                "return_dict": True
-            }
+            # 没有LoRA时使用正常处理
+            if estimated_tokens > 50:  # 只有在没有LoRA时才使用Compel
+                print(f"📏 长提示词检测: {estimated_tokens} tokens，启用Compel处理")
+                
+                from compel import Compel
+                # 🚨 修复SDXL Compel参数 - 添加text_encoder_2和pooled支持
+                compel = Compel(
+                    tokenizer=[txt2img_pipe.tokenizer, txt2img_pipe.tokenizer_2],
+                    text_encoder=[txt2img_pipe.text_encoder, txt2img_pipe.text_encoder_2],
+                    requires_pooled=[False, True]  # SDXL需要pooled embeds
+                )
+                
+                # 生成长提示词的embeddings (包括pooled_prompt_embeds)
+                print("🧬 使用Compel生成长提示词embeddings...")
+                conditioning, pooled_conditioning = compel(processed_prompt)
+                negative_conditioning, negative_pooled_conditioning = compel(processed_negative_prompt) if processed_negative_prompt else (None, None)
+                
+                # 使用预处理的embeddings (包括pooled)
+                generation_kwargs = {
+                    "prompt_embeds": conditioning,
+                    "negative_prompt_embeds": negative_conditioning,
+                    "pooled_prompt_embeds": pooled_conditioning,
+                    "negative_pooled_prompt_embeds": negative_pooled_conditioning,
+                    "height": int(height),
+                    "width": int(width),
+                    "num_inference_steps": int(steps),
+                    "guidance_scale": float(cfg_scale),
+                    "num_images_per_prompt": 1,
+                    "output_type": "pil",
+                    "return_dict": True
+                }
+                print("✅ 长提示词embeddings生成成功")
+            else:
+                print(f"📝 普通提示词长度: {estimated_tokens} tokens，使用标准处理")
+                # 标准提示词处理
+                generation_kwargs = {
+                    "prompt": processed_prompt,
+                    "negative_prompt": processed_negative_prompt,
+                    "height": int(height),
+                    "width": int(width),
+                    "num_inference_steps": int(steps),
+                    "guidance_scale": float(cfg_scale),
+                    "num_images_per_prompt": 1,
+                    "output_type": "pil",
+                    "return_dict": True
+                }
         
         # 生成图像
         try:
@@ -2235,7 +2262,7 @@ def compress_prompt_to_77_tokens(prompt: str, max_tokens: int = 75) -> str:
     import re
     
     # 计算当前token数量
-    token_pattern = r'\w+|[^\\w\\s]'
+    token_pattern = r'\w+|[^\w\s]'
     current_tokens = len(re.findall(token_pattern, prompt.lower()))
     
     if current_tokens <= max_tokens:
@@ -2261,62 +2288,49 @@ def compress_prompt_to_77_tokens(prompt: str, max_tokens: int = 75) -> str:
         'emotion': ['serene', 'intense', 'confident', 'contemplation', 'allure']
     }
     
-    # 分词并分类
+    # 🚨 修复：使用set来跟踪已添加的词，避免重复
     words = prompt.split()
-    categorized_words = {category: [] for category in priority_keywords.keys()}
-    uncategorized_words = []
-    
-    for word in words:
-        word_lower = word.lower().strip('.,!?;:')
-        categorized = False
-        
-        for category, keywords in priority_keywords.items():
-            if any(keyword in word_lower for keyword in keywords):
-                categorized_words[category].append(word)
-                categorized = True
-                break
-        
-        if not categorized:
-            uncategorized_words.append(word)
-    
-    # 按优先级重建prompt
+    used_words = set()  # 跟踪已使用的词
     compressed_parts = []
     remaining_tokens = max_tokens
     
-    # 优先级顺序
+    # 按优先级处理
     priority_order = ['quality', 'subject', 'anatomy', 'pose', 'environment', 'lighting', 'emotion']
     
     for category in priority_order:
-        if remaining_tokens <= 0:
+        if remaining_tokens <= 5:  # 预留一些空间
             break
             
-        category_words = categorized_words[category]
-        if category_words:
-            # 计算这个类别的token数
-            category_text = ' '.join(category_words)
-            category_tokens = len(re.findall(token_pattern, category_text.lower()))
+        category_keywords = priority_keywords[category]
+        
+        # 找到属于这个类别的词
+        for word in words:
+            if remaining_tokens <= 0:
+                break
+                
+            word_clean = word.lower().strip('.,!?;:')
             
-            if category_tokens <= remaining_tokens:
-                compressed_parts.extend(category_words)
-                remaining_tokens -= category_tokens
-            else:
-                # 部分添加最重要的词
-                for word in category_words:
-                    word_tokens = len(re.findall(token_pattern, word.lower()))
-                    if word_tokens <= remaining_tokens:
-                        compressed_parts.append(word)
-                        remaining_tokens -= word_tokens
-                    else:
-                        break
+            # 检查是否属于当前类别 且 没有被使用过
+            if word_clean not in used_words and any(keyword in word_clean for keyword in category_keywords):
+                word_tokens = len(re.findall(token_pattern, word.lower()))
+                if word_tokens <= remaining_tokens:
+                    compressed_parts.append(word)
+                    used_words.add(word_clean)
+                    remaining_tokens -= word_tokens
     
-    # 如果还有剩余空间，添加未分类的重要词
-    for word in uncategorized_words:
-        if remaining_tokens <= 0:
-            break
-        word_tokens = len(re.findall(token_pattern, word.lower()))
-        if word_tokens <= remaining_tokens:
-            compressed_parts.append(word)
-            remaining_tokens -= word_tokens
+    # 🚨 修复：如果还有空间，添加其他重要但未分类的词（避免重复）
+    if remaining_tokens > 0:
+        for word in words:
+            if remaining_tokens <= 0:
+                break
+                
+            word_clean = word.lower().strip('.,!?;:')
+            if word_clean not in used_words:
+                word_tokens = len(re.findall(token_pattern, word.lower()))
+                if word_tokens <= remaining_tokens:
+                    compressed_parts.append(word)
+                    used_words.add(word_clean)
+                    remaining_tokens -= word_tokens
     
     compressed_prompt = ' '.join(compressed_parts)
     final_tokens = len(re.findall(token_pattern, compressed_prompt.lower()))
