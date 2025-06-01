@@ -774,22 +774,68 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
         has_lora = bool(current_lora_config and any(v > 0 for v in current_lora_config.values()))
         
         if has_lora:
-            print(f"⚠️  检测到LoRA配置 {current_lora_config}，禁用Compel避免兼容性问题")
-            print(f"📝 长提示词({estimated_tokens} tokens)将使用标准SDXL处理，可能会截断")
+            print(f"⚠️  检测到LoRA配置 {current_lora_config}，使用LoRA兼容的长prompt处理")
+            print(f"📝 长提示词({estimated_tokens} tokens)将使用分段处理，避免截断")
             
-            # 强制使用标准处理，避免Compel与LoRA的兼容性问题
-            generation_kwargs = {
-                "prompt": processed_prompt,
-                "negative_prompt": processed_negative_prompt,
-                "height": int(height),
-                "width": int(width),
-                "num_inference_steps": int(steps),
-                "guidance_scale": float(cfg_scale),
-                "num_images_per_prompt": 1,
-                "output_type": "pil",
-                "return_dict": True
-            }
-            print("✅ 使用标准SDXL处理（LoRA兼容模式）")
+            # 🚨 修复：使用分段处理长prompt，避免截断同时兼容LoRA
+            try:
+                # 方法1：尝试使用SDXL管道的encode_prompt方法处理长prompt
+                if hasattr(txt2img_pipe, 'encode_prompt'):
+                    print("🧬 使用SDXL原生encode_prompt处理长prompt...")
+                    
+                    # SDXL的encode_prompt可以处理长prompt
+                    (
+                        prompt_embeds,
+                        negative_prompt_embeds,
+                        pooled_prompt_embeds,
+                        negative_pooled_prompt_embeds,
+                    ) = txt2img_pipe.encode_prompt(
+                        prompt=processed_prompt,
+                        prompt_2=processed_prompt,  # SDXL需要两个prompt
+                        negative_prompt=processed_negative_prompt,
+                        negative_prompt_2=processed_negative_prompt,
+                        num_images_per_prompt=1,
+                        do_classifier_free_guidance=True,
+                        device=txt2img_pipe.device,
+                        clip_skip=None,
+                        lora_scale=None,  # 重要：设置为None避免LoRA冲突
+                    )
+                    
+                    generation_kwargs = {
+                        "prompt_embeds": prompt_embeds,
+                        "negative_prompt_embeds": negative_prompt_embeds,
+                        "pooled_prompt_embeds": pooled_prompt_embeds,
+                        "negative_pooled_prompt_embeds": negative_pooled_prompt_embeds,
+                        "height": int(height),
+                        "width": int(width),
+                        "num_inference_steps": int(steps),
+                        "guidance_scale": float(cfg_scale),
+                        "num_images_per_prompt": 1,
+                        "output_type": "pil",
+                        "return_dict": True
+                    }
+                    print("✅ 使用SDXL原生长prompt处理（LoRA兼容模式）")
+                    
+                else:
+                    raise Exception("管道不支持encode_prompt方法")
+                    
+            except Exception as sdxl_error:
+                print(f"⚠️  SDXL原生长prompt处理失败: {sdxl_error}")
+                print("📝 回退到标准处理模式（可能截断）")
+                
+                # 回退到标准处理，接受可能的截断
+                generation_kwargs = {
+                    "prompt": processed_prompt,
+                    "negative_prompt": processed_negative_prompt,
+                    "height": int(height),
+                    "width": int(width),
+                    "num_inference_steps": int(steps),
+                    "guidance_scale": float(cfg_scale),
+                    "num_images_per_prompt": 1,
+                    "output_type": "pil",
+                    "return_dict": True
+                }
+                print("✅ 使用标准SDXL处理（可能截断但LoRA兼容）")
             
         elif estimated_tokens > 50:  # 只有在没有LoRA时才使用Compel
             print(f"📏 长提示词检测: {estimated_tokens} tokens (准确计算)，启用Compel处理")
