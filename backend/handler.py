@@ -806,53 +806,84 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
                     
                     print(f"📝 长prompt分为 {len(segments)} 段处理")
                     
-                    # 为每段生成embeddings
+                    # 🚨 修复：直接使用tokenizer和text_encoder，绕过encode_prompt的77 token限制
+                    import torch
+                    device = txt2img_pipe.device
+                    
                     all_prompt_embeds = []
                     all_pooled_embeds = []
                     
                     for i, segment in enumerate(segments):
                         print(f"🔤 处理段 {i+1}/{len(segments)}: {len(segment)} chars")
                         
-                        # 使用标准方法为每段生成embeddings
-                        segment_embeds = txt2img_pipe.encode_prompt(
-                            prompt=segment,
-                            prompt_2=segment,
-                            negative_prompt="",
-                            negative_prompt_2="",
-                            num_images_per_prompt=1,
-                            do_classifier_free_guidance=True,
-                            device=txt2img_pipe.device,
-                            clip_skip=None,
-                            lora_scale=None,
+                        # 直接使用tokenizer，不依赖encode_prompt
+                        # Text Encoder 1 (CLIP)
+                        text_inputs = txt2img_pipe.tokenizer(
+                            segment,
+                            padding="max_length",
+                            max_length=77,  # 明确设置最大长度
+                            truncation=True,  # 允许截断，但我们已经控制了段长度
+                            return_tensors="pt",
                         )
+                        text_input_ids = text_inputs.input_ids.to(device)
                         
-                        # 只保存正向embeddings
-                        all_prompt_embeds.append(segment_embeds[0][:1])  # 只要positive part
-                        all_pooled_embeds.append(segment_embeds[2][:1])   # 只要positive pooled
+                        # Text Encoder 2 (OpenCLIP)
+                        text_inputs_2 = txt2img_pipe.tokenizer_2(
+                            segment,
+                            padding="max_length", 
+                            max_length=77,
+                            truncation=True,
+                            return_tensors="pt",
+                        )
+                        text_input_ids_2 = text_inputs_2.input_ids.to(device)
+                        
+                        # 生成embeddings
+                        with torch.no_grad():
+                            prompt_embeds = txt2img_pipe.text_encoder(text_input_ids)[0]
+                            prompt_embeds_2 = txt2img_pipe.text_encoder_2(text_input_ids_2)[0]
+                            pooled_prompt_embeds = txt2img_pipe.text_encoder_2(text_input_ids_2)[1]
+                        
+                        # 连接两个text encoder的输出
+                        segment_prompt_embeds = torch.concat([prompt_embeds, prompt_embeds_2], dim=-1)
+                        
+                        all_prompt_embeds.append(segment_prompt_embeds)
+                        all_pooled_embeds.append(pooled_prompt_embeds)
                     
                     # 合并所有段的embeddings - 使用平均值
-                    import torch
-                    combined_prompt_embeds = torch.mean(torch.cat(all_prompt_embeds, dim=0), dim=0, keepdim=True)
-                    combined_pooled_embeds = torch.mean(torch.cat(all_pooled_embeds, dim=0), dim=0, keepdim=True)
+                    combined_prompt_embeds = torch.mean(torch.stack(all_prompt_embeds), dim=0)
+                    combined_pooled_embeds = torch.mean(torch.stack(all_pooled_embeds), dim=0)
                     
-                    # 生成负向embeddings（使用短的negative prompt）
-                    negative_embeds = txt2img_pipe.encode_prompt(
-                        prompt=processed_negative_prompt,
-                        prompt_2=processed_negative_prompt,
-                        negative_prompt="",
-                        negative_prompt_2="",
-                        num_images_per_prompt=1,
-                        do_classifier_free_guidance=False,
-                        device=txt2img_pipe.device,
-                        clip_skip=None,
-                        lora_scale=None,
+                    # 生成负向embeddings（用相同方法处理negative prompt）
+                    neg_text_inputs = txt2img_pipe.tokenizer(
+                        processed_negative_prompt,
+                        padding="max_length",
+                        max_length=77,
+                        truncation=True,
+                        return_tensors="pt",
                     )
+                    neg_text_input_ids = neg_text_inputs.input_ids.to(device)
+                    
+                    neg_text_inputs_2 = txt2img_pipe.tokenizer_2(
+                        processed_negative_prompt,
+                        padding="max_length",
+                        max_length=77, 
+                        truncation=True,
+                        return_tensors="pt",
+                    )
+                    neg_text_input_ids_2 = neg_text_inputs_2.input_ids.to(device)
+                    
+                    with torch.no_grad():
+                        neg_prompt_embeds = txt2img_pipe.text_encoder(neg_text_input_ids)[0]
+                        neg_prompt_embeds_2 = txt2img_pipe.text_encoder_2(neg_text_input_ids_2)[0]
+                        neg_pooled_prompt_embeds = txt2img_pipe.text_encoder_2(neg_text_input_ids_2)[1]
+                    
+                    negative_prompt_embeds = torch.concat([neg_prompt_embeds, neg_prompt_embeds_2], dim=-1)
                     
                     generation_kwargs = {
                         "prompt_embeds": combined_prompt_embeds,
-                        "negative_prompt_embeds": negative_embeds[0][:1],
+                        "negative_prompt_embeds": negative_prompt_embeds,
                         "pooled_prompt_embeds": combined_pooled_embeds,
-                        "negative_pooled_prompt_embeds": negative_embeds[2][:1],
+                        "negative_pooled_prompt_embeds": neg_pooled_prompt_embeds,
                         "height": int(height),
                         "width": int(width),
                         "num_inference_steps": int(steps),
@@ -861,7 +892,7 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
                         "output_type": "pil",
                         "return_dict": True
                     }
-                    print("✅ 分段长prompt处理完成（LoRA兼容）")
+                    print("✅ 真正的分段长prompt处理完成（绕过77 token限制，LoRA兼容）")
                     
                 else:
                     # 正常长度的prompt，使用标准处理
@@ -880,6 +911,7 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
                     
             except Exception as long_prompt_error:
                 print(f"⚠️  分段长prompt处理失败: {long_prompt_error}")
+                print(f"详细错误: {traceback.format_exc()}")
                 print("📝 回退到标准处理模式")
                 
                 generation_kwargs = {
@@ -894,7 +926,7 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
                     "return_dict": True
                 }
                 print("✅ 回退到标准SDXL处理")
-            
+        
         elif estimated_tokens > 50:  # 只有在没有LoRA时才使用Compel
             print(f"📏 长提示词检测: {estimated_tokens} tokens (准确计算)，启用Compel处理")
             
