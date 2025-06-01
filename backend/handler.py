@@ -786,7 +786,7 @@ def generate_flux_images(prompt: str, negative_prompt: str, width: int, height: 
     return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text-to-image")
 
 def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, height: int, steps: int, cfg_scale: float, seed: int, num_images: int, base_model: str) -> list:
-    """使用标准diffusers管道生成图像 - 深度修复NoneType错误"""
+    """使用标准diffusers管道生成图像 - 支持长提示词处理"""
     global txt2img_pipe
     
     if txt2img_pipe is None:
@@ -813,24 +813,79 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
     print(f"  dimensions: {width}x{height}")
     print(f"  steps: {steps}, cfg_scale: {cfg_scale}")
     
-    # 🚨 跳过Compel处理，直接使用简单的文本
-    # 避免复杂的prompt处理可能导致的None问题
-    print("🎯 跳过Compel处理，使用简单prompt处理避免None错误")
+    # 🎯 SDXL长提示词处理 - 使用Compel支持500+ tokens
+    processed_prompt = prompt
+    processed_negative_prompt = negative_prompt
     
-    # 🚨 使用最基础的参数配置，避免任何可能的None传递
-    generation_kwargs = {
-        "prompt": prompt,
-        "negative_prompt": negative_prompt,
-        "height": int(height),
-        "width": int(width),
-        "num_inference_steps": int(steps),
-        "guidance_scale": float(cfg_scale),
-        "num_images_per_prompt": 1,  # 先强制单张生成
-        "output_type": "pil",
-        "return_dict": True,
-        # SDXL模型可能需要added_cond_kwargs，即使为空字典也比None安全
-        "added_cond_kwargs": {} 
-    }
+    try:
+        # 检查提示词长度，如果超过75个token，使用Compel处理
+        token_count = len(prompt.split())
+        if token_count > 70:  # 保留一些余量
+            print(f"📏 长提示词检测: ~{token_count} tokens，启用Compel处理")
+            
+            from compel import Compel
+            compel = Compel(
+                tokenizer=txt2img_pipe.tokenizer,
+                text_encoder=txt2img_pipe.text_encoder,
+                tokenizer_2=txt2img_pipe.tokenizer_2,
+                text_encoder_2=txt2img_pipe.text_encoder_2,
+                returned_embeddings_type="clip_mean_pooled",
+                requires_pooled=[False, True],  # SDXL需要pooled embeddings
+            )
+            
+            # 生成长提示词的embeddings
+            print("🧬 使用Compel生成长提示词embeddings...")
+            conditioning = compel(prompt)
+            negative_conditioning = compel(negative_prompt) if negative_prompt else None
+            
+            # 使用预处理的embeddings
+            generation_kwargs = {
+                "prompt_embeds": conditioning[0],  # text_encoder embeddings
+                "pooled_prompt_embeds": conditioning[1],  # pooled embeddings for SDXL
+                "negative_prompt_embeds": negative_conditioning[0] if negative_conditioning else None,
+                "negative_pooled_prompt_embeds": negative_conditioning[1] if negative_conditioning else None,
+                "height": int(height),
+                "width": int(width),
+                "num_inference_steps": int(steps),
+                "guidance_scale": float(cfg_scale),
+                "num_images_per_prompt": 1,
+                "output_type": "pil",
+                "return_dict": True,
+                "added_cond_kwargs": {}
+            }
+            print("✅ 长提示词embeddings生成成功")
+            
+        else:
+            print(f"📝 普通提示词长度: ~{token_count} tokens，使用标准处理")
+            # 标准提示词处理
+            generation_kwargs = {
+                "prompt": processed_prompt,
+                "negative_prompt": processed_negative_prompt,
+                "height": int(height),
+                "width": int(width),
+                "num_inference_steps": int(steps),
+                "guidance_scale": float(cfg_scale),
+                "num_images_per_prompt": 1,
+                "output_type": "pil",
+                "return_dict": True,
+                "added_cond_kwargs": {}
+            }
+            
+    except Exception as compel_error:
+        print(f"⚠️  Compel处理失败: {compel_error}，回退到标准处理")
+        # 回退到标准处理
+        generation_kwargs = {
+            "prompt": processed_prompt,
+            "negative_prompt": processed_negative_prompt,
+            "height": int(height),
+            "width": int(width),
+            "num_inference_steps": int(steps),
+            "guidance_scale": float(cfg_scale),
+            "num_images_per_prompt": 1,
+            "output_type": "pil",
+            "return_dict": True,
+            "added_cond_kwargs": {}
+        }
     
     # 设置随机种子
     if seed != -1:
@@ -930,7 +985,7 @@ def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt
     print(f"🎯 总共生成了 {len(results)} 张图像")
     return results
 
-def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, height: int = 1024, steps: int = 12, cfg_scale: float = 1.0, seed: int = -1, num_images: int = 1, base_model: str = "realistic") -> list:
+def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, height: int = 1024, steps: int = 25, cfg_scale: float = 5.0, seed: int = -1, num_images: int = 1, base_model: str = "realistic") -> list:
     """文本生成图像 - 支持多种模型类型"""
     global current_base_model, txt2img_pipe
     
@@ -1542,21 +1597,45 @@ def load_multiple_loras(lora_config: dict) -> bool:
                 txt2img_pipe.set_adapters([adapter_name], adapter_weights=[lora_weights[0]])
                 
         elif current_model_type == "diffusers":
-            # 标准diffusers模型使用load_lora_weights
+            # 标准diffusers模型使用load_lora_weights和set_adapters
             if len(compatible_loras) == 1:
                 # 单个LoRA
                 lora_path = lora_paths[0]
-                weight = lora_weights[0] 
-                txt2img_pipe.load_lora_weights(lora_path)
-                txt2img_pipe.cross_attention_kwargs = {"scale": weight}
+                weight = lora_weights[0]
+                lora_id = list(compatible_loras.keys())[0]
+                
+                print(f"🔧 使用新版diffusers LoRA API加载: {lora_id}")
+                txt2img_pipe.load_lora_weights(lora_path, adapter_name=lora_id)
+                
+                # 使用新的set_adapters方法设置权重，避免cross_attention_kwargs错误
+                txt2img_pipe.set_adapters([lora_id], adapter_weights=[weight])
                 
                 # 同步到img2img管道
                 if img2img_pipe:
-                    img2img_pipe.load_lora_weights(lora_path)
-                    img2img_pipe.cross_attention_kwargs = {"scale": weight}
+                    img2img_pipe.load_lora_weights(lora_path, adapter_name=lora_id)
+                    img2img_pipe.set_adapters([lora_id], adapter_weights=[weight])
+                    
+                print(f"✅ 成功设置LoRA权重: {lora_id} = {weight}")
+                
             else:
-                print("⚠️  多个LoRA加载暂不支持标准diffusers模型")
-                return False
+                # 多个LoRA
+                adapter_names = list(compatible_loras.keys())
+                adapter_weights = lora_weights
+                
+                print(f"🔧 加载多个LoRA: {adapter_names}")
+                
+                # 逐个加载LoRA
+                for i, (lora_id, lora_data) in enumerate(compatible_loras.items()):
+                    txt2img_pipe.load_lora_weights(lora_data["path"], adapter_name=lora_id)
+                    if img2img_pipe:
+                        img2img_pipe.load_lora_weights(lora_data["path"], adapter_name=lora_id)
+                
+                # 一次性设置所有权重
+                txt2img_pipe.set_adapters(adapter_names, adapter_weights=adapter_weights)
+                if img2img_pipe:
+                    img2img_pipe.set_adapters(adapter_names, adapter_weights=adapter_weights)
+                    
+                print(f"✅ 成功设置多个LoRA权重: {dict(zip(adapter_names, adapter_weights))}")
         
         # 更新当前配置
         current_lora_config.update(lora_config)
@@ -1723,8 +1802,8 @@ def handler(job):
             negative_prompt = job_input.get('negativePrompt', '') 
             width = job_input.get('width', 1024)
             height = job_input.get('height', 1024)
-            steps = job_input.get('steps', 12)
-            cfg_scale = job_input.get('cfgScale', 1.0)
+            steps = job_input.get('steps', 25)
+            cfg_scale = job_input.get('cfgScale', 5.0)
             seed = job_input.get('seed', -1)
             num_images = job_input.get('numImages', 1)
             base_model = job_input.get('baseModel', 'realistic')

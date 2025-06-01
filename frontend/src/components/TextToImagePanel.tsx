@@ -42,8 +42,8 @@ export default function TextToImagePanel() {
     negativePrompt: '', // Will be removed from UI
     width: 512,
     height: 512,
-    steps: baseModel === 'realistic' ? 12 : 20, // FLUX uses 12 steps, anime uses 20
-    cfgScale: baseModel === 'realistic' ? 1.0 : 7.0, // FLUX uses 1.0, anime uses 7.0
+    steps: 25, // 统一默认值：25 steps
+    cfgScale: 5.0, // 统一默认值：5.0 CFG Scale
     seed: -1,
     numImages: 1,
     baseModel: baseModel,
@@ -59,9 +59,9 @@ export default function TextToImagePanel() {
       ...prev,
       baseModel: baseModel,
       lora_config: loraConfig,
-      // Adjust default parameters based on model type
-      steps: baseModel === 'realistic' ? 12 : 20,
-      cfgScale: baseModel === 'realistic' ? 1.0 : 7.0,
+      // 保持统一的默认参数，用户可以根据需要调整
+      steps: 25,
+      cfgScale: 5.0,
     }))
   }, [baseModel, loraConfig])
 
@@ -335,32 +335,32 @@ export default function TextToImagePanel() {
                 {/* Steps */}
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    Steps: {params.steps} {baseModel === 'realistic' ? '(FLUX推荐12)' : '(动漫推荐20)'}
+                    Steps: {params.steps} (默认25，可调整)
                   </label>
                   <input
                     type="range"
-                    min={baseModel === 'realistic' ? "8" : "10"}
-                    max={baseModel === 'realistic' ? "20" : "50"}
+                    min="8"
+                    max="50"
                     value={params.steps}
                     onChange={(e) => setParams(prev => ({ ...prev, steps: Number(e.target.value) }))}
                     className="slider"
                     disabled={status === 'pending'}
                   />
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>{baseModel === 'realistic' ? '8' : '10'}</span>
-                    <span>{baseModel === 'realistic' ? '20' : '50'}</span>
+                    <span>8</span>
+                    <span>50</span>
                   </div>
                 </div>
 
                 {/* CFG Scale */}
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    CFG Scale: {params.cfgScale} {baseModel === 'realistic' ? '(FLUX推荐1)' : '(动漫推荐7)'}
+                    CFG Scale: {params.cfgScale} (默认5，可调整)
                   </label>
                   <input
                     type="range"
-                    min={baseModel === 'realistic' ? "0.5" : "1"}
-                    max={baseModel === 'realistic' ? "3" : "20"}
+                    min="0.5"
+                    max="20"
                     step="0.5"
                     value={params.cfgScale}
                     onChange={(e) => setParams(prev => ({ ...prev, cfgScale: Number(e.target.value) }))}
@@ -368,8 +368,8 @@ export default function TextToImagePanel() {
                     disabled={status === 'pending'}
                   />
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>{baseModel === 'realistic' ? '0.5' : '1'}</span>
-                    <span>{baseModel === 'realistic' ? '3' : '20'}</span>
+                    <span>0.5</span>
+                    <span>20</span>
                   </div>
                 </div>
 
