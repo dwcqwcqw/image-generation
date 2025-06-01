@@ -743,7 +743,7 @@ def generate_flux_images(prompt: str, negative_prompt: str, width: int, height: 
     return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text-to-image")
 
 def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, height: int, steps: int, cfg_scale: float, seed: int, num_images: int, base_model: str) -> list:
-    """使用标准diffusers管道生成图像 - 支持长提示词处理"""
+    """使用标准diffusers管道生成图像 - 支持长提示词处理和优化参数"""
     global txt2img_pipe
     
     if txt2img_pipe is None:
@@ -763,6 +763,29 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
     # 确保prompt和negative_prompt都是字符串类型
     prompt = str(prompt).strip()
     negative_prompt = str(negative_prompt).strip()
+    
+    # 🚨 修复：优化动漫模型参数，避免残次品
+    # 根据Anime_NSFW.safetensors的官方推荐参数
+    if width < 768 or height < 768:
+        print(f"⚠️  动漫模型分辨率过低 ({width}x{height})，调整为最小768x768")
+        width = max(768, width)
+        height = max(768, height)
+    
+    # 动漫模型CFG优化
+    if cfg_scale < 6.0:
+        print(f"⚠️  动漫模型CFG过低 ({cfg_scale})，调整为7.0 (推荐6-9)")
+        cfg_scale = 7.0
+    elif cfg_scale > 10.0:
+        print(f"⚠️  动漫模型CFG过高 ({cfg_scale})，调整为7.5 (推荐6-9)")
+        cfg_scale = 7.5
+    
+    # 动漫模型步数优化
+    if steps < 20:
+        print(f"⚠️  动漫模型steps过低 ({steps})，调整为25 (推荐20-35)")
+        steps = 25
+    elif steps > 40:
+        print(f"⚠️  动漫模型steps过高 ({steps})，调整为35 (推荐20-35)")
+        steps = 35
     
     print(f"🔍 最终参数检查:")
     print(f"  prompt: {repr(prompt)} (type: {type(prompt)})")
@@ -1479,7 +1502,7 @@ def switch_single_lora(lora_id: str) -> bool:
         raise RuntimeError(f"LoRA切换失败: {str(e)}")
 
 def load_multiple_loras(lora_config: dict) -> bool:
-    """加载多个LoRA模型到管道中 - 使用动态搜索"""
+    """加载多个LoRA模型到管道中 - 使用动态搜索和更彻底的清理"""
     global txt2img_pipe, img2img_pipe, current_base_model, current_lora_config
     
     if txt2img_pipe is None:
@@ -1495,41 +1518,8 @@ def load_multiple_loras(lora_config: dict) -> bool:
     print(f"🎯 当前模型类型: {current_model_type}")
     
     try:
-        # 🚨 修复：彻底清理现有的LoRA适配器
-        print("🧹 Clearing existing LoRA weights...")
-        try:
-            # 方法1: 标准unload_lora_weights
-            txt2img_pipe.unload_lora_weights()
-            if img2img_pipe:
-                img2img_pipe.unload_lora_weights()
-        except Exception as e:
-            print(f"⚠️  Standard unload failed: {e}")
-        
-        try:
-            # 方法2: 直接清理UNet中的适配器
-            if hasattr(txt2img_pipe, 'unet') and hasattr(txt2img_pipe.unet, '_lora_adapters'):
-                print("🔧 手动清理UNet适配器...")
-                txt2img_pipe.unet._lora_adapters.clear()
-                if hasattr(txt2img_pipe.unet, 'peft_config'):
-                    txt2img_pipe.unet.peft_config.clear()
-                
-            if img2img_pipe and hasattr(img2img_pipe, 'unet') and hasattr(img2img_pipe.unet, '_lora_adapters'):
-                img2img_pipe.unet._lora_adapters.clear()
-                if hasattr(img2img_pipe.unet, 'peft_config'):
-                    img2img_pipe.unet.peft_config.clear()
-        except Exception as e:
-            print(f"⚠️  Manual adapter cleanup failed: {e}")
-        
-        try:
-            # 方法3: 删除现有的adapter属性 
-            if hasattr(txt2img_pipe.unet, 'peft_modules'):
-                delattr(txt2img_pipe.unet, 'peft_modules')
-            if img2img_pipe and hasattr(img2img_pipe.unet, 'peft_modules'):
-                delattr(img2img_pipe.unet, 'peft_modules')
-        except Exception as e:
-            print(f"⚠️  PEFT modules cleanup failed: {e}")
-        
-        print("✅ LoRA适配器清理完成")
+        # 🚨 修复：使用更彻底的清理方法
+        completely_clear_lora_adapters()
         
         # 动态搜索并过滤兼容的LoRA
         compatible_loras = {}
@@ -1589,9 +1579,10 @@ def load_multiple_loras(lora_config: dict) -> bool:
                 weight = lora_weights[0]
                 lora_id = list(compatible_loras.keys())[0]
                 
-                # 🚨 修复：使用唯一的适配器名称避免冲突
+                # 🚨 修复：使用更强的唯一性保证
                 import time
-                unique_adapter_name = f"{lora_id}_{int(time.time())}"
+                import random
+                unique_adapter_name = f"{lora_id}_{int(time.time())}_{random.randint(1000, 9999)}"
                 print(f"🔧 使用新版diffusers LoRA API加载: {lora_id} (适配器名: {unique_adapter_name})")
                 
                 txt2img_pipe.load_lora_weights(lora_path, adapter_name=unique_adapter_name)
@@ -1613,11 +1604,12 @@ def load_multiple_loras(lora_config: dict) -> bool:
                 
                 print(f"🔧 加载多个LoRA: {list(compatible_loras.keys())}")
                 
-                # 逐个加载LoRA，使用唯一适配器名称
+                # 逐个加载LoRA，使用更强的唯一适配器名称
                 import time
+                import random
                 timestamp = int(time.time())
                 for i, (lora_id, lora_data) in enumerate(compatible_loras.items()):
-                    unique_adapter_name = f"{lora_id}_{timestamp}_{i}"
+                    unique_adapter_name = f"{lora_id}_{timestamp}_{i}_{random.randint(1000, 9999)}"
                     adapter_names.append(unique_adapter_name)
                     
                     txt2img_pipe.load_lora_weights(lora_data["path"], adapter_name=unique_adapter_name)
@@ -1641,6 +1633,15 @@ def load_multiple_loras(lora_config: dict) -> bool:
         # 打印更详细的错误信息
         import traceback
         print(f"详细错误: {traceback.format_exc()}")
+        
+        # 🚨 修复：即使LoRA加载失败，也要确保状态清理
+        try:
+            completely_clear_lora_adapters()
+            current_lora_config = {}
+            print("🧹 LoRA失败后状态已清理")
+        except Exception as cleanup_error:
+            print(f"⚠️  清理状态失败: {cleanup_error}")
+        
         return False
 
 def switch_base_model(base_model_type: str) -> bool:
@@ -2069,3 +2070,77 @@ ANIME_ADDITIONAL_LORAS = {
     "multiple_views": "/runpod-volume/cartoon/lora/multiple_views.safetensors",
     "pet_play": "/runpod-volume/cartoon/lora/pet_play.safetensors"
 }
+
+def completely_clear_lora_adapters():
+    """完全清理所有LoRA适配器 - 最彻底的清理方法"""
+    global txt2img_pipe, img2img_pipe
+    
+    print("🧹 开始完全清理LoRA适配器...")
+    
+    # 清理管道列表
+    pipelines = [txt2img_pipe]
+    if img2img_pipe:
+        pipelines.append(img2img_pipe)
+    
+    for pipe in pipelines:
+        if pipe is None:
+            continue
+            
+        try:
+            # 方法1: 标准unload
+            if hasattr(pipe, 'unload_lora_weights'):
+                pipe.unload_lora_weights()
+                print("✅ 标准unload_lora_weights完成")
+        except Exception as e:
+            print(f"⚠️  标准unload失败: {e}")
+        
+        try:
+            # 方法2: 清理UNet适配器
+            if hasattr(pipe, 'unet') and pipe.unet is not None:
+                unet = pipe.unet
+                
+                # 清理_lora_adapters
+                if hasattr(unet, '_lora_adapters') and unet._lora_adapters:
+                    print(f"🔧 清理UNet._lora_adapters: {list(unet._lora_adapters.keys())}")
+                    unet._lora_adapters.clear()
+                
+                # 清理peft_config
+                if hasattr(unet, 'peft_config') and unet.peft_config:
+                    print(f"🔧 清理UNet.peft_config: {list(unet.peft_config.keys())}")
+                    unet.peft_config.clear()
+                
+                # 清理所有adapter相关属性
+                adapter_attrs = ['_lora_adapters', 'peft_config', 'peft_modules', '_hf_peft_config_loaded']
+                for attr in adapter_attrs:
+                    if hasattr(unet, attr):
+                        try:
+                            if attr.endswith('_loaded'):
+                                setattr(unet, attr, False)
+                            else:
+                                delattr(unet, attr)
+                            print(f"🔧 清理UNet.{attr}")
+                        except Exception as e:
+                            print(f"⚠️  清理UNet.{attr}失败: {e}")
+        except Exception as e:
+            print(f"⚠️  UNet清理失败: {e}")
+        
+        try:
+            # 方法3: 清理text encoder适配器（如果有）
+            for encoder_name in ['text_encoder', 'text_encoder_2']:
+                if hasattr(pipe, encoder_name):
+                    encoder = getattr(pipe, encoder_name)
+                    if encoder is not None and hasattr(encoder, '_lora_adapters'):
+                        if encoder._lora_adapters:
+                            print(f"🔧 清理{encoder_name}._lora_adapters")
+                            encoder._lora_adapters.clear()
+                        if hasattr(encoder, 'peft_config') and encoder.peft_config:
+                            encoder.peft_config.clear()
+        except Exception as e:
+            print(f"⚠️  Text encoder清理失败: {e}")
+    
+    # 强制GPU内存清理
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        print("🧹 GPU内存已清理")
+    
+    print("✅ LoRA适配器完全清理完成")
