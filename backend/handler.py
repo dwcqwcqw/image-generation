@@ -888,7 +888,13 @@ def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt
                 current_generation_kwargs["generator"] = generator
                 print(f"🎲 图像 {i+1} 种子: {current_seed}")
             else:
-                print(f"🎲 图像 {i+1} 随机种子")
+                # 🚨 修复：为随机种子生成具体的种子值并显示
+                import random
+                current_seed = random.randint(0, 2147483647)  # 使用32位整数范围
+                import torch
+                generator = torch.Generator(device=txt2img_pipe.device).manual_seed(int(current_seed))
+                current_generation_kwargs["generator"] = generator
+                print(f"🎲 图像 {i+1} 种子: {current_seed} (随机生成)")
             
             # 生成图像 - 根据模型类型选择是否使用autocast
             if use_autocast:
@@ -916,7 +922,7 @@ def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt
                             'height': height,
                             'steps': steps,
                             'cfg_scale': cfg_scale,
-                            'seed': current_seed if seed != -1 else -1
+                            'seed': current_seed  # 🚨 修复：总是包含具体的种子值
                         })
                         print(f"✅ 图像 {i+1}/{num_images} 生成成功: {filename}")
                     except Exception as upload_error:
@@ -1489,14 +1495,41 @@ def load_multiple_loras(lora_config: dict) -> bool:
     print(f"🎯 当前模型类型: {current_model_type}")
     
     try:
-        # 先清理现有的LoRA
+        # 🚨 修复：彻底清理现有的LoRA适配器
         print("🧹 Clearing existing LoRA weights...")
         try:
+            # 方法1: 标准unload_lora_weights
             txt2img_pipe.unload_lora_weights()
             if img2img_pipe:
                 img2img_pipe.unload_lora_weights()
         except Exception as e:
-            print(f"⚠️  Could not unload previous LoRAs: {e}")
+            print(f"⚠️  Standard unload failed: {e}")
+        
+        try:
+            # 方法2: 直接清理UNet中的适配器
+            if hasattr(txt2img_pipe, 'unet') and hasattr(txt2img_pipe.unet, '_lora_adapters'):
+                print("🔧 手动清理UNet适配器...")
+                txt2img_pipe.unet._lora_adapters.clear()
+                if hasattr(txt2img_pipe.unet, 'peft_config'):
+                    txt2img_pipe.unet.peft_config.clear()
+                
+            if img2img_pipe and hasattr(img2img_pipe, 'unet') and hasattr(img2img_pipe.unet, '_lora_adapters'):
+                img2img_pipe.unet._lora_adapters.clear()
+                if hasattr(img2img_pipe.unet, 'peft_config'):
+                    img2img_pipe.unet.peft_config.clear()
+        except Exception as e:
+            print(f"⚠️  Manual adapter cleanup failed: {e}")
+        
+        try:
+            # 方法3: 删除现有的adapter属性 
+            if hasattr(txt2img_pipe.unet, 'peft_modules'):
+                delattr(txt2img_pipe.unet, 'peft_modules')
+            if img2img_pipe and hasattr(img2img_pipe.unet, 'peft_modules'):
+                delattr(img2img_pipe.unet, 'peft_modules')
+        except Exception as e:
+            print(f"⚠️  PEFT modules cleanup failed: {e}")
+        
+        print("✅ LoRA适配器清理完成")
         
         # 动态搜索并过滤兼容的LoRA
         compatible_loras = {}
@@ -1556,38 +1589,47 @@ def load_multiple_loras(lora_config: dict) -> bool:
                 weight = lora_weights[0]
                 lora_id = list(compatible_loras.keys())[0]
                 
-                print(f"🔧 使用新版diffusers LoRA API加载: {lora_id}")
-                txt2img_pipe.load_lora_weights(lora_path, adapter_name=lora_id)
+                # 🚨 修复：使用唯一的适配器名称避免冲突
+                import time
+                unique_adapter_name = f"{lora_id}_{int(time.time())}"
+                print(f"🔧 使用新版diffusers LoRA API加载: {lora_id} (适配器名: {unique_adapter_name})")
+                
+                txt2img_pipe.load_lora_weights(lora_path, adapter_name=unique_adapter_name)
                 
                 # 使用新的set_adapters方法设置权重，避免cross_attention_kwargs错误
-                txt2img_pipe.set_adapters([lora_id], adapter_weights=[weight])
+                txt2img_pipe.set_adapters([unique_adapter_name], adapter_weights=[weight])
                 
                 # 同步到img2img管道
                 if img2img_pipe:
-                    img2img_pipe.load_lora_weights(lora_path, adapter_name=lora_id)
-                    img2img_pipe.set_adapters([lora_id], adapter_weights=[weight])
+                    img2img_pipe.load_lora_weights(lora_path, adapter_name=unique_adapter_name)
+                    img2img_pipe.set_adapters([unique_adapter_name], adapter_weights=[weight])
                     
                 print(f"✅ 成功设置LoRA权重: {lora_id} = {weight}")
                 
             else:
                 # 多个LoRA
-                adapter_names = list(compatible_loras.keys())
+                adapter_names = []
                 adapter_weights = lora_weights
                 
-                print(f"🔧 加载多个LoRA: {adapter_names}")
+                print(f"🔧 加载多个LoRA: {list(compatible_loras.keys())}")
                 
-                # 逐个加载LoRA
+                # 逐个加载LoRA，使用唯一适配器名称
+                import time
+                timestamp = int(time.time())
                 for i, (lora_id, lora_data) in enumerate(compatible_loras.items()):
-                    txt2img_pipe.load_lora_weights(lora_data["path"], adapter_name=lora_id)
+                    unique_adapter_name = f"{lora_id}_{timestamp}_{i}"
+                    adapter_names.append(unique_adapter_name)
+                    
+                    txt2img_pipe.load_lora_weights(lora_data["path"], adapter_name=unique_adapter_name)
                     if img2img_pipe:
-                        img2img_pipe.load_lora_weights(lora_data["path"], adapter_name=lora_id)
+                        img2img_pipe.load_lora_weights(lora_data["path"], adapter_name=unique_adapter_name)
                 
                 # 一次性设置所有权重
                 txt2img_pipe.set_adapters(adapter_names, adapter_weights=adapter_weights)
                 if img2img_pipe:
                     img2img_pipe.set_adapters(adapter_names, adapter_weights=adapter_weights)
                     
-                print(f"✅ 成功设置多个LoRA权重: {dict(zip(adapter_names, adapter_weights))}")
+                print(f"✅ 成功设置多个LoRA权重: {dict(zip(list(compatible_loras.keys()), adapter_weights))}")
         
         # 更新当前配置
         current_lora_config.update(lora_config)

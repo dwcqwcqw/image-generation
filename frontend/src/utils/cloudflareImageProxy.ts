@@ -115,27 +115,9 @@ export async function downloadCloudflareImage(
   originalUrl: string, 
   filename: string = 'image.png'
 ): Promise<void> {
-  console.log('[Download] Starting download for:', originalUrl)
+  console.log('[Download] Starting direct download for:', originalUrl)
 
-  // 策略1: 直接下载链接
-  try {
-    const link = document.createElement('a')
-    link.href = originalUrl
-    link.download = filename.endsWith('.png') ? filename : `${filename}.png`
-    link.target = '_blank'
-    link.rel = 'noopener noreferrer'
-    
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    
-    console.log('[Download] Direct download link created')
-    return
-  } catch (error) {
-    console.log('[Download] Direct download failed:', error)
-  }
-
-  // 策略2: Fetch下载（CORS已配置）
+  // 🚨 修复：优先使用fetch+blob策略，确保直接下载而不是预览
   try {
     const response = await fetch(originalUrl, {
       mode: 'cors',
@@ -149,26 +131,58 @@ export async function downloadCloudflareImage(
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       
+      // 🚨 修复：使用download属性强制下载，避免预览
       const link = document.createElement('a')
       link.href = url
       link.download = filename.endsWith('.png') ? filename : `${filename}.png`
+      
+      // 确保下载而不是预览
+      link.style.display = 'none'
       document.body.appendChild(link)
       link.click()
-      document.body.removeChild(link)
       
+      // 立即清理
+      document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
+      
       console.log('[Download] Fetch download successful')
       return
     } else {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`)
     }
   } catch (error) {
-    console.log('[Download] Fetch download failed:', error)
+    console.log('[Download] Fetch download failed, trying direct link:', error)
   }
 
-  // 策略3: 新窗口打开
-  console.log('[Download] Falling back to new window')
-  window.open(originalUrl, '_blank')
+  // 策略2: 直接下载链接（如果fetch失败）
+  try {
+    const link = document.createElement('a')
+    link.href = originalUrl
+    link.download = filename.endsWith('.png') ? filename : `${filename}.png`
+    
+    // 🚨 修复：强制下载属性
+    link.setAttribute('download', filename.endsWith('.png') ? filename : `${filename}.png`)
+    link.style.display = 'none'
+    
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    
+    console.log('[Download] Direct download link created')
+    return
+  } catch (error) {
+    console.log('[Download] Direct download failed:', error)
+  }
+
+  // 策略3: 仅在所有下载方法失败时才打开新窗口
+  console.log('[Download] All download methods failed, opening in new window as fallback')
+  const newWindow = window.open(originalUrl, '_blank')
+  if (newWindow) {
+    // 提供用户指导
+    setTimeout(() => {
+      console.log('[Download] Opened in new window - user can right-click to save')
+    }, 1000)
+  }
   throw new Error('Download failed, opened in new window')
 }
 
