@@ -95,30 +95,28 @@ BASE_MODELS = {
         "name": "真人风格",
         "model_path": "/runpod-volume/flux_base",
         "model_type": "flux", 
-        "lora_path": "/runpod-volume/lora/flux_nsfw/flux_lustly-ai_v1.safetensors",
-        "lora_id": "flux_nsfw"
+        "lora_path": None,  # 🚨 修复：不自动加载默认LoRA
+        "lora_id": None     # 🚨 修复：让用户选择决定LoRA
     },
     "anime": {
         "name": "动漫风格", 
-        "model_path": "/runpod-volume/cartoon/Anime_NSFW.safetensors",  # 修改为正确的底层模型
+        "model_path": "/runpod-volume/cartoon/Anime_NSFW.safetensors",
         "model_type": "diffusers",
-        "lora_path": "/runpod-volume/cartoon/lora/Gayporn.safetensors",  # 设置默认LoRA
-        "lora_id": "gayporn"  # 设置默认LoRA ID
+        "lora_path": None,  # 🚨 修复：不自动加载默认LoRA
+        "lora_id": None     # 🚨 修复：让用户选择决定LoRA
     }
 }
 
-# 默认LoRA配置 - 根据基础模型（单选模式）
-DEFAULT_LORA_CONFIG = {
-    "gayporn": 1.0  # 修改为动漫模型的默认LoRA
-}
+# 修复：移除默认LoRA配置，让用户选择决定
+DEFAULT_LORA_CONFIG = {}
 
 # 全局变量存储模型
 txt2img_pipe = None
 img2img_pipe = None
-current_lora_config = DEFAULT_LORA_CONFIG.copy()
-current_base_model = None  # 初始化时不预加载任何模型
-device_mapping_enabled = False  # Track if device mapping is used
-current_selected_lora = "gayporn"  # 修改为动漫模型的默认LoRA
+current_lora_config = {}  # 修复：初始化为空
+current_base_model = None
+device_mapping_enabled = False
+current_selected_lora = None  # 修复：初始化为None
 
 # 全局变量存储compel处理器
 compel_proc = None
@@ -332,14 +330,14 @@ def load_diffusers_model(base_path: str, device: str) -> tuple:
             print("🚫 img2img管道模型CPU Offload已禁用")
         
         print(f"✅ {pipeline_class.__name__} 模型加载成功: {base_path}")
-        return txt2img_pipeline, img2img_pipeline
+        return txt2img_pipeline, img2img_pipe
         
     except Exception as e:
         print(f"❌ Error loading diffusers model ({pipeline_class.__name__}): {str(e)}")
         raise e
 
 def load_specific_model(base_model_type: str):
-    """加载指定的基础模型 - 改进的LoRA处理"""
+    """加载指定的基础模型 - 修复：不自动加载LoRA"""
     global txt2img_pipe, img2img_pipe, current_base_model, current_lora_config, current_selected_lora
     
     if base_model_type not in BASE_MODELS:
@@ -383,58 +381,10 @@ def load_specific_model(base_model_type: str):
         
         current_base_model = base_model_type
         
-        # 🚨 保守的LoRA加载策略 - 失败不影响基础模型
-        default_lora_path = model_config.get("lora_path")
-        lora_loaded_successfully = False
-        
-        if default_lora_path and os.path.exists(default_lora_path):
-            try:
-                lora_start_time = datetime.now()
-                print(f"🎨 尝试加载默认LoRA: {default_lora_path}")
-                
-                model_type = model_config.get("model_type")
-                if model_type == "flux":
-                    # FLUX模型LoRA加载
-                    try:
-                        txt2img_pipe.load_lora_weights(default_lora_path)
-                        lora_loaded_successfully = True
-                        print("✅ FLUX LoRA加载成功")
-                    except Exception as flux_lora_error:
-                        print(f"⚠️  FLUX LoRA加载失败: {flux_lora_error}")
-                        
-                elif model_type == "diffusers":
-                    # 🚨 动漫模型LoRA兼容性测试
-                    print(f"🧪 测试动漫模型LoRA兼容性...")
-                    try:
-                        # 尝试加载LoRA，但准备捕获所有可能的错误
-                        txt2img_pipe.load_lora_weights(default_lora_path)
-                        lora_loaded_successfully = True
-                        print("✅ 动漫模型LoRA加载成功")
-                    except Exception as anime_lora_error:
-                        print(f"⚠️  动漫模型LoRA不兼容: {str(anime_lora_error)[:200]}...")
-                        print("ℹ️  这是预期行为 - 该LoRA与当前动漫基础模型架构不匹配")
-                        print("ℹ️  系统将使用纯基础模型继续运行")
-                        lora_loaded_successfully = False
-                
-                if lora_loaded_successfully:
-                    lora_time = (datetime.now() - lora_start_time).total_seconds()
-                    print(f"✅ LoRA loaded in {lora_time:.2f}s")
-                    current_lora_config = {model_config["lora_id"]: 1.0}
-                    current_selected_lora = model_config["lora_id"]
-                else:
-                    print("🎯 继续使用纯基础模型（无LoRA）")
-                    current_lora_config = {}
-                    current_selected_lora = None
-                    
-            except Exception as general_lora_error:
-                print(f"⚠️  LoRA加载过程出错: {general_lora_error}")
-                print("ℹ️  将使用纯基础模型")
-                current_lora_config = {}
-                current_selected_lora = None
-        else:
-            print("ℹ️  无默认LoRA配置，使用纯基础模型")
-            current_lora_config = {}
-            current_selected_lora = None
+        # 🚨 修复：不自动加载默认LoRA，保持清洁状态，等待用户选择
+        print("ℹ️  基础模型加载完成，无默认LoRA，等待用户选择LoRA")
+        current_lora_config = {}
+        current_selected_lora = None
         
         model_time = (datetime.now() - model_start_time).total_seconds()
         print(f"🎉 {model_config['name']} model loaded successfully in {model_time:.2f}s!")
@@ -1022,24 +972,32 @@ def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, hei
         return generate_flux_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model)
         
     elif model_type == "diffusers":
-        # 动漫模型参数优化 - 根据CivitAI官方推荐 和 您的notebook测试
-        # WAI-NSFW-illustrious-SDXL(Anime_NSFW.safetensors)推荐: Steps: 15-30, CFG scale: 5-7, 1024x1024以上
-        # 您的notebook: steps=30, cfg_scale=7.5
-        # 强制使用float16精度已在load_diffusers_model中处理
+        # 🚨 修复：动漫模型参数优化，避免残图问题
+        print("💡 动漫模型推荐1024x1024以上分辨率")
+        print("🔧 动漫模型优化参数(避免残图): steps=25, cfg_scale=7, size=1024x1024")
+        print("📝 Processing anime model generation...")
         
-        if cfg_scale < 5.0:
-            print(f"⚠️  动漫模型CFG过低 ({cfg_scale})，调整为7.0 (推荐5-7.5)")
+        # 🚨 修复：动漫模型强制最小参数，避免残图
+        if width < 1024 or height < 1024:
+            print(f"⚠️  动漫模型分辨率过低 ({width}x{height})，调整为最小1024x1024")
+            width = max(1024, width)
+            height = max(1024, height)
+        
+        # 动漫模型CFG优化
+        if cfg_scale < 6.0:
+            print(f"⚠️  动漫模型CFG过低 ({cfg_scale})，调整为7.0 (推荐6-9)")
             cfg_scale = 7.0
-        elif cfg_scale > 8.0:
-            print(f"⚠️  动漫模型CFG过高 ({cfg_scale})，调整为7.5 (推荐5-7.5)")
-            cfg_scale = 7.5
+        elif cfg_scale > 10.0:
+            print(f"⚠️  动漫模型CFG过高 ({cfg_scale})，调整为8.0 (推荐6-9)")
+            cfg_scale = 8.0
         
-        if steps < 15:
-            print(f"⚠️  动漫模型steps过低 ({steps})，调整为25 (推荐15-30)")
+        # 动漫模型步数优化
+        if steps < 25:
+            print(f"⚠️  动漫模型steps过低 ({steps})，调整为25 (推荐25-40)")
             steps = 25
-        elif steps > 35:
-            print(f"⚠️  动漫模型steps过高 ({steps})，调整为30 (推荐15-30)")
-            steps = 30
+        elif steps > 50:
+            print(f"⚠️  动漫模型steps过高 ({steps})，调整为40 (推荐25-40)")
+            steps = 40
         
         # 确保使用1024x1024以上分辨率
         if width < 1024 or height < 1024:
@@ -1423,7 +1381,7 @@ def get_loras_by_base_model() -> dict:
             {"id": "anal_sex", "name": "Anal Sex", "description": "肛交主题内容生成"}
         ],
         "anime": [
-            {"id": "gayporn", "name": "Gayporn", "description": "男同动漫风格内容生成（默认）"},
+            {"id": "gayporn", "name": "Gayporn", "description": "男同动漫风格内容生成"},
             {"id": "blowjob_handjob", "name": "Blowjob Handjob", "description": "口交和手交动漫内容"},
             {"id": "furry", "name": "Furry", "description": "兽人风格动漫内容"},
             {"id": "sex_slave", "name": "Sex Slave", "description": "性奴主题动漫内容"},
@@ -1432,10 +1390,8 @@ def get_loras_by_base_model() -> dict:
             {"id": "multiple_views", "name": "Multiple Views", "description": "多视角动漫内容"},
             {"id": "pet_play", "name": "Pet Play", "description": "宠物扮演主题内容"}
         ],
-        "current_selected": {
-            "realistic": current_selected_lora if current_base_model == "realistic" else "flux_nsfw",
-            "anime": "gayporn"  # 设置gayporn为动漫模型的默认选择
-        }
+        # 🚨 修复：移除固定的current_selected，让前端决定初始选择
+        "message": "LoRA列表获取成功 - 静态配置版本"
     }
 
 def switch_single_lora(lora_id: str) -> bool:
@@ -1502,7 +1458,7 @@ def switch_single_lora(lora_id: str) -> bool:
         raise RuntimeError(f"LoRA切换失败: {str(e)}")
 
 def load_multiple_loras(lora_config: dict) -> bool:
-    """加载多个LoRA模型到管道中 - 使用动态搜索和更彻底的清理"""
+    """加载多个LoRA模型到管道中 - 修复适配器名称冲突问题"""
     global txt2img_pipe, img2img_pipe, current_base_model, current_lora_config
     
     if txt2img_pipe is None:
@@ -1553,23 +1509,22 @@ def load_multiple_loras(lora_config: dict) -> bool:
             lora_weights.append(lora_data["weight"])
             print(f"  📦 {lora_id}: {lora_data['path']} (weight: {lora_data['weight']})")
         
-        # 根据模型类型使用不同的加载方法
         if current_model_type == "flux":
-            # FLUX模型使用load_lora_weights
-            txt2img_pipe.load_lora_weights(
-                lora_paths[0] if len(lora_paths) == 1 else lora_paths,
-                weight_name=None,
-                adapter_name=list(compatible_loras.keys())[0] if len(compatible_loras) == 1 else list(compatible_loras.keys())
-            )
-            
-            # 设置权重
-            if len(compatible_loras) > 1:
-                adapter_weights = {name: weight for name, weight in zip(compatible_loras.keys(), lora_weights)}
-                txt2img_pipe.set_adapters(list(compatible_loras.keys()), adapter_weights=list(adapter_weights.values()))
-            else:
-                # 单个LoRA
-                adapter_name = list(compatible_loras.keys())[0]
-                txt2img_pipe.set_adapters([adapter_name], adapter_weights=[lora_weights[0]])
+            # FLUX模型使用旧版API
+            for i, (lora_path, weight) in enumerate(zip(lora_paths, lora_weights)):
+                print(f"🔧 加载FLUX LoRA {i+1}/{len(lora_paths)}: {lora_path}")
+                
+                # 卸载之前的LoRA（如果有）
+                if hasattr(txt2img_pipe, 'unload_lora_weights'):
+                    txt2img_pipe.unload_lora_weights()
+                
+                # 加载新的LoRA
+                txt2img_pipe.load_lora_weights(lora_path)
+                
+                # FLUX的权重通过cross_attention_kwargs设置
+                if hasattr(txt2img_pipe, 'set_lora_scale'):
+                    txt2img_pipe.set_lora_scale(weight)
+                    print(f"✅ FLUX LoRA权重设置: {weight}")
                 
         elif current_model_type == "diffusers":
             # 标准diffusers模型使用load_lora_weights和set_adapters
@@ -1582,8 +1537,17 @@ def load_multiple_loras(lora_config: dict) -> bool:
                 # 🚨 修复：使用更强的唯一性保证
                 import time
                 import random
-                unique_adapter_name = f"{lora_id}_{int(time.time())}_{random.randint(1000, 9999)}"
+                import uuid
+                unique_id = str(uuid.uuid4())[:8]  # 8位UUID
+                timestamp = int(time.time() * 1000)  # 毫秒级时间戳
+                unique_adapter_name = f"{lora_id}_{timestamp}_{unique_id}"
                 print(f"🔧 使用新版diffusers LoRA API加载: {lora_id} (适配器名: {unique_adapter_name})")
+                
+                # 先检查适配器是否已存在，如果存在就强制清理
+                if hasattr(txt2img_pipe.unet, '_lora_adapters') and unique_adapter_name in txt2img_pipe.unet._lora_adapters:
+                    print(f"⚠️  检测到适配器名称冲突，重新生成: {unique_adapter_name}")
+                    unique_id = str(uuid.uuid4())[:8]
+                    unique_adapter_name = f"{lora_id}_{timestamp}_{unique_id}_retry"
                 
                 txt2img_pipe.load_lora_weights(lora_path, adapter_name=unique_adapter_name)
                 
@@ -1607,10 +1571,19 @@ def load_multiple_loras(lora_config: dict) -> bool:
                 # 逐个加载LoRA，使用更强的唯一适配器名称
                 import time
                 import random
-                timestamp = int(time.time())
+                import uuid
+                timestamp = int(time.time() * 1000)
                 for i, (lora_id, lora_data) in enumerate(compatible_loras.items()):
-                    unique_adapter_name = f"{lora_id}_{timestamp}_{i}_{random.randint(1000, 9999)}"
+                    unique_id = str(uuid.uuid4())[:8]
+                    unique_adapter_name = f"{lora_id}_{timestamp}_{i}_{unique_id}"
                     adapter_names.append(unique_adapter_name)
+                    
+                    # 检查冲突
+                    if hasattr(txt2img_pipe.unet, '_lora_adapters') and unique_adapter_name in txt2img_pipe.unet._lora_adapters:
+                        print(f"⚠️  检测到多LoRA适配器名称冲突，重新生成: {unique_adapter_name}")
+                        unique_id = str(uuid.uuid4())[:8]
+                        unique_adapter_name = f"{lora_id}_{timestamp}_{i}_{unique_id}_retry"
+                        adapter_names[-1] = unique_adapter_name
                     
                     txt2img_pipe.load_lora_weights(lora_data["path"], adapter_name=unique_adapter_name)
                     if img2img_pipe:
@@ -1630,17 +1603,14 @@ def load_multiple_loras(lora_config: dict) -> bool:
         
     except Exception as e:
         print(f"❌ Error loading multiple LoRAs: {e}")
-        # 打印更详细的错误信息
-        import traceback
         print(f"详细错误: {traceback.format_exc()}")
         
-        # 🚨 修复：即使LoRA加载失败，也要确保状态清理
+        # 🚨 修复：LoRA加载失败后的清理
         try:
             completely_clear_lora_adapters()
-            current_lora_config = {}
             print("🧹 LoRA失败后状态已清理")
         except Exception as cleanup_error:
-            print(f"⚠️  清理状态失败: {cleanup_error}")
+            print(f"⚠️  清理失败后状态时出错: {cleanup_error}")
         
         return False
 
@@ -2082,63 +2052,91 @@ def completely_clear_lora_adapters():
     if img2img_pipe:
         pipelines.append(img2img_pipe)
     
-    for pipe in pipelines:
+    for i, pipe in enumerate(pipelines):
         if pipe is None:
             continue
-            
+        
+        pipeline_name = "txt2img" if i == 0 else "img2img"
+        
         try:
-            # 方法1: 标准unload
+            # 第1层：标准的unload_lora_weights方法
             if hasattr(pipe, 'unload_lora_weights'):
                 pipe.unload_lora_weights()
                 print("✅ 标准unload_lora_weights完成")
-        except Exception as e:
-            print(f"⚠️  标准unload失败: {e}")
-        
-        try:
-            # 方法2: 清理UNet适配器
-            if hasattr(pipe, 'unet') and pipe.unet is not None:
+            
+            # 第2层：清理UNet中的特定LoRA配置
+            if hasattr(pipe, 'unet') and pipe.unet:
                 unet = pipe.unet
                 
-                # 清理_lora_adapters
-                if hasattr(unet, '_lora_adapters') and unet._lora_adapters:
-                    print(f"🔧 清理UNet._lora_adapters: {list(unet._lora_adapters.keys())}")
-                    unet._lora_adapters.clear()
+                # 清理_hf_peft_config_loaded
+                if hasattr(unet, '_hf_peft_config_loaded'):
+                    delattr(unet, '_hf_peft_config_loaded')
+                    print("🔧 清理UNet._hf_peft_config_loaded")
                 
-                # 清理peft_config
+                # 🚨 新增：清理PEFT相关的适配器缓存
                 if hasattr(unet, 'peft_config') and unet.peft_config:
-                    print(f"🔧 清理UNet.peft_config: {list(unet.peft_config.keys())}")
                     unet.peft_config.clear()
+                    print("🔧 清理UNet.peft_config")
                 
-                # 清理所有adapter相关属性
-                adapter_attrs = ['_lora_adapters', 'peft_config', 'peft_modules', '_hf_peft_config_loaded']
+                # 🚨 新增：清理适配器名称缓存
+                if hasattr(unet, '_lora_adapters'):
+                    unet._lora_adapters.clear()
+                    print("🔧 清理UNet._lora_adapters")
+                
+                # 🚨 新增：强制清理所有可能的适配器残留
+                adapter_attrs = ['_lora_adapters', 'peft_config', '_adapter_names', '_active_adapters']
                 for attr in adapter_attrs:
                     if hasattr(unet, attr):
                         try:
-                            if attr.endswith('_loaded'):
-                                setattr(unet, attr, False)
-                            else:
-                                delattr(unet, attr)
+                            attr_obj = getattr(unet, attr)
+                            if hasattr(attr_obj, 'clear'):
+                                attr_obj.clear()
+                            elif isinstance(attr_obj, dict):
+                                attr_obj.clear()
+                            elif isinstance(attr_obj, list):
+                                attr_obj.clear()
                             print(f"🔧 清理UNet.{attr}")
-                        except Exception as e:
-                            print(f"⚠️  清理UNet.{attr}失败: {e}")
-        except Exception as e:
-            print(f"⚠️  UNet清理失败: {e}")
-        
-        try:
-            # 方法3: 清理text encoder适配器（如果有）
-            for encoder_name in ['text_encoder', 'text_encoder_2']:
-                if hasattr(pipe, encoder_name):
-                    encoder = getattr(pipe, encoder_name)
-                    if encoder is not None and hasattr(encoder, '_lora_adapters'):
-                        if encoder._lora_adapters:
-                            print(f"🔧 清理{encoder_name}._lora_adapters")
-                            encoder._lora_adapters.clear()
-                        if hasattr(encoder, 'peft_config') and encoder.peft_config:
-                            encoder.peft_config.clear()
-        except Exception as e:
-            print(f"⚠️  Text encoder清理失败: {e}")
+                        except Exception as attr_error:
+                            print(f"⚠️  清理UNet.{attr}时出错: {attr_error}")
+                
+                # 🚨 新增：清理Text Encoder适配器（如果存在）
+                if hasattr(pipe, 'text_encoder') and pipe.text_encoder:
+                    text_encoder = pipe.text_encoder
+                    for attr in adapter_attrs:
+                        if hasattr(text_encoder, attr):
+                            try:
+                                attr_obj = getattr(text_encoder, attr)
+                                if hasattr(attr_obj, 'clear'):
+                                    attr_obj.clear()
+                                elif isinstance(attr_obj, dict):
+                                    attr_obj.clear()
+                                elif isinstance(attr_obj, list):
+                                    attr_obj.clear()
+                                print(f"🔧 清理TextEncoder.{attr}")
+                            except Exception as attr_error:
+                                print(f"⚠️  清理TextEncoder.{attr}时出错: {attr_error}")
+                
+                # 🚨 新增：如果有第二个Text Encoder（SDXL）
+                if hasattr(pipe, 'text_encoder_2') and pipe.text_encoder_2:
+                    text_encoder_2 = pipe.text_encoder_2
+                    for attr in adapter_attrs:
+                        if hasattr(text_encoder_2, attr):
+                            try:
+                                attr_obj = getattr(text_encoder_2, attr)
+                                if hasattr(attr_obj, 'clear'):
+                                    attr_obj.clear()
+                                elif isinstance(attr_obj, dict):
+                                    attr_obj.clear()
+                                elif isinstance(attr_obj, list):
+                                    attr_obj.clear()
+                                print(f"🔧 清理TextEncoder2.{attr}")
+                            except Exception as attr_error:
+                                print(f"⚠️  清理TextEncoder2.{attr}时出错: {attr_error}")
+                
+        except Exception as pipeline_error:
+            print(f"⚠️  清理{pipeline_name}管道时出错: {pipeline_error}")
     
-    # 强制GPU内存清理
+    # 第3层：强制清理GPU内存
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         print("🧹 GPU内存已清理")
