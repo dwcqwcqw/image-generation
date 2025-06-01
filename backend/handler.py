@@ -695,6 +695,7 @@ def generate_flux_images(prompt: str, negative_prompt: str, width: int, height: 
 def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, height: int, steps: int, cfg_scale: float, seed: int, num_images: int, base_model: str) -> list:
     """使用标准diffusers管道生成图像 - 支持长提示词处理和WAI-NSFW-illustrious-SDXL优化参数"""
     global txt2img_pipe
+    import traceback  # 🚨 修复：确保traceback已导入
     
     if txt2img_pipe is None:
         raise RuntimeError("Diffusers pipeline not loaded")
@@ -744,13 +745,23 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
     
     # 🚨 修复：添加推荐的负面提示
     recommended_negative = "bad quality, worst quality, worst detail, sketch, censor"
-    if negative_prompt and negative_prompt.strip():
-        # 如果用户有自定义负面提示，添加到推荐负面提示之后
-        negative_prompt = recommended_negative + ", " + negative_prompt
+    # 🚨 修复：防止重复添加推荐negative prompt
+    # 🔧 可选：如果用户没有输入任何负面提示词，可以跳过自动添加
+    auto_add_negative = False  # 设为False可完全禁用自动添加
+    
+    if auto_add_negative and recommended_negative not in negative_prompt:
+        if negative_prompt and negative_prompt.strip():
+            # 如果用户有自定义负面提示，添加到推荐负面提示之后
+            negative_prompt = recommended_negative + ", " + negative_prompt
+        else:
+            # 如果没有自定义负面提示，使用推荐的
+            negative_prompt = recommended_negative
+        print(f"🛡️ 添加WAI-NSFW-illustrious-SDXL推荐负面提示")
     else:
-        # 如果没有自定义负面提示，使用推荐的
-        negative_prompt = recommended_negative
-    print(f"🛡️ 使用WAI-NSFW-illustrious-SDXL推荐负面提示")
+        if auto_add_negative:
+            print(f"🛡️ 已包含推荐负面提示，跳过添加")
+        else:
+            print(f"🔧 自动添加负面提示已禁用，保持用户原始输入")
     
     print(f"🔍 最终参数检查:")
     print(f"  prompt: {repr(prompt)} (type: {type(prompt)})")
@@ -852,50 +863,12 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
                     "return_dict": True
                 }
         
-        # 生成图像
-        try:
-            print(f"🎨 使用 {current_base_model} 模型生成图像...")
-            model_config = BASE_MODELS.get(current_base_model, {})
-            model_type = model_config.get("model_type", "unknown")
-            
-            if model_type == "flux":
-                print("💡 FLUX模型推荐768x768分辨率")
-                print("🔧 FLUX模型优化参数(官方推荐): steps=20, cfg_scale=4, size=768x768")
-                images = generate_flux_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, current_base_model)
-            elif model_type == "diffusers":
-                print("💡 动漫模型推荐1024x1024以上分辨率")
-                print("🔧 动漫模型优化参数(CivitAI推荐): steps=20, cfg_scale=6, size=1024x1024")
-                images = generate_diffusers_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, current_base_model)
-            else:
-                print(f"❌ 未知模型类型: {model_type}")
-                return {
-                    'success': False,
-                    'error': f'Unknown model type: {model_type}'
-                }
-            
-            # 🚨 检查生成结果是否为空
-            if not images or len(images) == 0:
-                print("❌ 图像生成失败，返回空结果")
-                return {
-                    'success': False,
-                    'error': 'Image generation failed - no images were created. This may be due to model compatibility issues or parameter problems.'
-                }
-            
-            # 删除重复的日志输出 - 已在generate_images_common中统一处理
-            # print(f"✅ 成功生成 {len(images)} 张图像")
-            return {
-                'success': True,
-                'data': images
-            }
-            
-        except Exception as generation_error:
-            print(f"❌ 图像生成过程出错: {generation_error}")
-            import traceback
-            print(f"详细错误: {traceback.format_exc()}")
-            return {
-                'success': False,
-                'error': f'Image generation failed: {str(generation_error)}'
-            }
+        # 🚨 修复递归调用 - 直接使用generate_images_common统一处理
+        print(f"🎨 使用 {base_model} diffusers模型生成图像...")
+        print("💡 动漫模型推荐1024x1024以上分辨率")
+        print("🔧 动漫模型优化参数(CivitAI推荐): steps=20, cfg_scale=6, size=1024x1024")
+        
+        return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text-to-image")
         
     except Exception as long_prompt_error:
         print(f"⚠️  分段长prompt处理失败: {long_prompt_error}")
@@ -914,11 +887,8 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
             "return_dict": True
         }
         print("✅ 回退到标准SDXL处理")
-    
-    # 种子设置现在在generate_images_common中处理，支持多张不同种子
-    print(f"🎯 Generation kwargs: {list(generation_kwargs.keys())}")
-    
-    return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text_to_image")
+        
+        return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text-to-image")
 
 def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt: str, width: int, height: int, steps: int, cfg_scale: float, seed: int, num_images: int, base_model: str, task_type: str) -> list:
     """通用图像生成逻辑 - 支持真正的多张生成"""
@@ -1014,11 +984,15 @@ def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt
     print(f"🎯 总共成功生成了 {len(results)} 张图像")
     return results
 
-def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, height: int = 1024, steps: int = 25, cfg_scale: float = 5.0, seed: int = -1, num_images: int = 1, base_model: str = "realistic") -> list:
+def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, height: int = 1024, steps: int = 25, cfg_scale: float = 5.0, seed: int = -1, num_images: int = 1, base_model: str = "realistic", lora_config: dict = None) -> list:
     """文本生成图像 - 支持多种模型类型"""
     global current_base_model, txt2img_pipe
     
     print(f"🎯 请求模型: {base_model}, 当前加载模型: {current_base_model}")
+    
+    # 🚨 修复：确保lora_config有默认值
+    if lora_config is None:
+        lora_config = {}
     
     # 🚨 修复：先检查模型切换，再处理LoRA配置
     # 检查模型是否需要切换
@@ -1081,35 +1055,39 @@ def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, hei
         model_config = BASE_MODELS.get(current_base_model, {})
         model_type = model_config.get("model_type", "unknown")
         
+        # 🚨 修复：直接调用对应的生成函数，避免递归调用
         if model_type == "flux":
-            print("💡 FLUX模型推荐768x768分辨率")
-            print("🔧 FLUX模型优化参数(官方推荐): steps=20, cfg_scale=4, size=768x768")
-            images = generate_flux_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, current_base_model)
+            print("🎯 调用generate_flux_images函数 (FLUX)")
+            return generate_flux_images(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                width=width,
+                height=height,
+                steps=steps,
+                cfg_scale=cfg_scale,
+                seed=seed,
+                num_images=num_images,
+                base_model=current_base_model
+            )
         elif model_type == "diffusers":
-            print("💡 动漫模型推荐1024x1024以上分辨率")
-            print("🔧 动漫模型优化参数(CivitAI推荐): steps=20, cfg_scale=6, size=1024x1024")
-            images = generate_diffusers_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, current_base_model)
+            print("🎯 调用generate_diffusers_images函数 (diffusers)")
+            return generate_diffusers_images(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                width=width,
+                height=height,
+                steps=steps,
+                cfg_scale=cfg_scale,
+                seed=seed,
+                num_images=num_images,
+                base_model=current_base_model
+            )
         else:
             print(f"❌ 未知模型类型: {model_type}")
             return {
                 'success': False,
                 'error': f'Unknown model type: {model_type}'
             }
-        
-        # 🚨 检查生成结果是否为空
-        if not images or len(images) == 0:
-            print("❌ 图像生成失败，返回空结果")
-            return {
-                'success': False,
-                'error': 'Image generation failed - no images were created. This may be due to model compatibility issues or parameter problems.'
-            }
-        
-        # 删除重复的日志输出 - 已在generate_images_common中统一处理
-        # print(f"✅ 成功生成 {len(images)} 张图像")
-        return {
-            'success': True,
-            'data': images
-        }
         
     except Exception as generation_error:
         print(f"❌ 图像生成过程出错: {generation_error}")
@@ -1884,105 +1862,25 @@ def handler(job):
             base_model = job_input.get('baseModel', 'realistic')
             lora_config = job_input.get('lora_config', {})
             
-            # 🚨 修复：先检查模型切换，再处理LoRA配置
-            # 检查模型是否需要切换
-            if base_model != current_base_model:
-                print(f"🎯 请求模型: {base_model}, 当前加载模型: {current_base_model}")
-                print(f"🔄 需要切换模型: {current_base_model} -> {base_model}")
-                
-                try:
-                    load_specific_model(base_model)
-                    print(f"✅ 成功切换到 {base_model} 模型")
-                except Exception as switch_error:
-                    print(f"❌ 模型切换失败: {switch_error}")
-                    return {
-                        'success': False,
-                        'error': f'Failed to switch to {base_model} model: {str(switch_error)}'
-                    }
+            # 🚨 修复：直接调用text_to_image，避免重复处理
+            print("🎯 Handler直接调用text_to_image函数")
+            results = text_to_image(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                width=width,
+                height=height,
+                steps=steps,
+                cfg_scale=cfg_scale,
+                seed=seed,
+                num_images=num_images,
+                base_model=base_model,
+                lora_config=lora_config
+            )
             
-            # 🚨 确保有模型加载
-            if not txt2img_pipe:
-                print("❌ 没有加载任何模型")
-                return {
-                    'success': False,
-                    'error': 'No model loaded. Please switch to a valid model first.'
-                }
-            
-            # 🚨 修复：模型切换完成后，再处理LoRA配置
-            # 检查是否需要更新LoRA配置（包括首次加载）
-            if lora_config:
-                print(f"🎨 更新LoRA配置: {lora_config}")
-                
-                # 检查当前模型类型
-                if current_base_model:
-                    model_config = BASE_MODELS.get(current_base_model, {})
-                    model_type = model_config.get("model_type", "unknown")
-                    print(f"🎯 当前模型类型: {model_type}")
-                    
-                    # 清理现有LoRA权重
-                    if txt2img_pipe:
-                        try:
-                            print("🧹 Clearing existing LoRA weights...")
-                            completely_clear_lora_adapters()
-                        except Exception as clear_error:
-                            print(f"⚠️  清理LoRA权重时出错: {clear_error}")
-                    
-                    # 尝试加载新的LoRA配置
-                    try:
-                        if load_multiple_loras(lora_config):
-                            print("✅ LoRA配置更新成功")
-                        else:
-                            print("⚠️  LoRA配置更新失败，使用基础模型")
-                    except Exception as lora_load_error:
-                        print(f"⚠️  LoRA加载出错: {lora_load_error}")
-                        print("ℹ️  继续使用基础模型生成")
-            else:
-                print("ℹ️  没有LoRA配置，使用基础模型生成")
-            
-            # 生成图像
-            try:
-                print(f"🎨 使用 {current_base_model} 模型生成图像...")
-                model_config = BASE_MODELS.get(current_base_model, {})
-                model_type = model_config.get("model_type", "unknown")
-                
-                if model_type == "flux":
-                    print("💡 FLUX模型推荐768x768分辨率")
-                    print("🔧 FLUX模型优化参数(官方推荐): steps=20, cfg_scale=4, size=768x768")
-                    images = generate_flux_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, current_base_model)
-                elif model_type == "diffusers":
-                    print("💡 动漫模型推荐1024x1024以上分辨率")
-                    print("🔧 动漫模型优化参数(CivitAI推荐): steps=20, cfg_scale=6, size=1024x1024")
-                    images = generate_diffusers_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, current_base_model)
-                else:
-                    print(f"❌ 未知模型类型: {model_type}")
-                    return {
-                        'success': False,
-                        'error': f'Unknown model type: {model_type}'
-                    }
-                
-                # 🚨 检查生成结果是否为空
-                if not images or len(images) == 0:
-                    print("❌ 图像生成失败，返回空结果")
-                    return {
-                        'success': False,
-                        'error': 'Image generation failed - no images were created. This may be due to model compatibility issues or parameter problems.'
-                    }
-                
-                # 删除重复的日志输出 - 已在generate_images_common中统一处理
-                # print(f"✅ 成功生成 {len(images)} 张图像")
-                return {
-                    'success': True,
-                    'data': images
-                }
-                
-            except Exception as generation_error:
-                print(f"❌ 图像生成过程出错: {generation_error}")
-                import traceback
-                print(f"详细错误: {traceback.format_exc()}")
-                return {
-                    'success': False,
-                    'error': f'Image generation failed: {str(generation_error)}'
-                }
+            return {
+                'success': True,
+                'data': results
+            }
             
         elif task_type == 'image-to-image':
             # 图像转图像生成 - 修复参数提取
