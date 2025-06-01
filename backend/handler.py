@@ -330,7 +330,7 @@ def load_diffusers_model(base_path: str, device: str) -> tuple:
             print("🚫 img2img管道模型CPU Offload已禁用")
         
         print(f"✅ {pipeline_class.__name__} 模型加载成功: {base_path}")
-        return txt2img_pipeline, img2img_pipe
+        return txt2img_pipeline, img2img_pipeline  # 🚨 修复：返回正确的img2img_pipeline而不是img2img_pipe
         
     except Exception as e:
         print(f"❌ Error loading diffusers model ({pipeline_class.__name__}): {str(e)}")
@@ -1102,8 +1102,24 @@ def image_to_image(params: dict) -> list:
     """图生图生成 - 修复版本，支持FLUX和SDXL模型"""
     global img2img_pipe, current_base_model
     
+    # 🚨 修复：检查并自动加载模型
+    base_model = params.get('baseModel', 'realistic')
+    
+    # 如果没有加载任何模型，或者请求的模型与当前模型不匹配
+    if img2img_pipe is None or current_base_model != base_model:
+        print(f"📝 图生图模型未加载或需要切换，当前: {current_base_model} -> 请求: {base_model}")
+        try:
+            load_specific_model(base_model)
+            print(f"✅ 成功加载图生图模型: {base_model}")
+        except Exception as model_error:
+            print(f"❌ 图生图模型加载失败: {model_error}")
+            raise ValueError(f"Failed to load image-to-image model '{base_model}': {str(model_error)}")
+    
+    # 再次检查模型是否加载成功
     if img2img_pipe is None:
-        raise ValueError("Image-to-image model not loaded")
+        raise ValueError("Image-to-image model failed to load properly")
+    
+    print(f"✅ 图生图模型已就绪: {current_base_model}")
     
     # 提取参数
     prompt = params.get('prompt', '')
@@ -1116,7 +1132,6 @@ def image_to_image(params: dict) -> list:
     seed = params.get('seed', -1)
     num_images = params.get('numImages', 1)
     denoising_strength = params.get('denoisingStrength', 0.7)
-    base_model = params.get('baseModel', 'realistic')
     lora_config = params.get('lora_config', {})
     
     # 🚨 修复：确保prompt和negative_prompt不为None
@@ -1128,10 +1143,7 @@ def image_to_image(params: dict) -> list:
     print(f"📝 图生图处理 - 提示词: {len(prompt)} 字符")
     print(f"📐 图像尺寸: {width}x{height}, 步数: {steps}, CFG: {cfg_scale}")
     
-    # 检查是否需要切换基础模型
-    if base_model != current_base_model:
-        print(f"🔄 图生图切换模型: {current_base_model} -> {base_model}")
-        switch_base_model(base_model)
+    # 🚨 模型加载已在函数开头处理，这里移除重复检查
     
     # 检查是否需要更新LoRA配置
     if lora_config and lora_config != current_lora_config:
