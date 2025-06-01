@@ -5,6 +5,7 @@ import time
 import traceback
 import uuid
 import sys  # 添加缺失的sys导入
+import re  # 添加regex模块用于长prompt处理
 from datetime import datetime
 from typing import Optional, Dict, List, Tuple
 
@@ -167,6 +168,8 @@ def load_models():
 
 def load_flux_model(base_path: str, device: str) -> tuple:
     """加载FLUX模型"""
+    global device_mapping_enabled
+    
     # 内存优化配置
     model_kwargs = {
         "torch_dtype": torch.float16 if device == "cuda" else torch.float32,
@@ -174,32 +177,15 @@ def load_flux_model(base_path: str, device: str) -> tuple:
         "low_cpu_mem_usage": True,
     }
     
-    # 尝试使用设备映射优化
-    if device == "cuda":
-        try:
-            # 先尝试 "balanced" 策略
-            model_kwargs_with_device_map = model_kwargs.copy()
-            model_kwargs_with_device_map["device_map"] = "balanced"
-            
-            txt2img_pipe = FluxPipeline.from_pretrained(
-                base_path,
-                **model_kwargs_with_device_map
-            )
-            print("✅ Device mapping enabled with 'balanced' strategy")
-            
-        except Exception as device_map_error:
-            print(f"⚠️  Device mapping failed ({device_map_error}), loading without device mapping")
-            # 回退到不使用设备映射
-            txt2img_pipe = FluxPipeline.from_pretrained(
-                base_path,
-                **model_kwargs
-            )
-    else:
-        # CPU模式直接加载
-        txt2img_pipe = FluxPipeline.from_pretrained(
-            base_path,
-            **model_kwargs
-        )
+    # 🚨 禁用device mapping以避免模型切换时的device conflicts
+    print("⚠️  禁用FLUX device mapping以避免模型切换冲突")
+    device_mapping_enabled = False
+    
+    # 直接加载到指定设备，不使用device mapping
+    txt2img_pipe = FluxPipeline.from_pretrained(
+        base_path,
+        **model_kwargs
+    ).to(device)
     
     # 启用优化
     try:
@@ -208,11 +194,8 @@ def load_flux_model(base_path: str, device: str) -> tuple:
     except Exception as e:
         print(f"⚠️  Attention slicing not available: {e}")
         
-    try:
-        txt2img_pipe.enable_model_cpu_offload()
-        print("✅ CPU offload enabled")
-    except Exception as e:
-        print(f"⚠️  CPU offload not available: {e}")
+    # 🚨 跳过CPU offload以避免device conflicts
+    print("⚠️  跳过FLUX CPU offload以避免device冲突")
     
     try:
         txt2img_pipe.enable_vae_slicing()
@@ -231,7 +214,7 @@ def load_flux_model(base_path: str, device: str) -> tuple:
         tokenizer_2=txt2img_pipe.tokenizer_2,
         transformer=txt2img_pipe.transformer,
         scheduler=txt2img_pipe.scheduler,
-    )
+    ).to(device)
     
     return txt2img_pipe, img2img_pipe
 
@@ -361,6 +344,28 @@ def load_specific_model(base_model_type: str):
     
     if base_model_type not in BASE_MODELS:
         raise ValueError(f"Unknown base model type: {base_model_type}")
+    
+    # 🚨 彻底清理之前的模型，避免device conflicts
+    if txt2img_pipe is not None:
+        print("🧹 清理之前的txt2img模型...")
+        try:
+            del txt2img_pipe
+        except:
+            pass
+        txt2img_pipe = None
+    
+    if img2img_pipe is not None:
+        print("🧹 清理之前的img2img模型...")
+        try:
+            del img2img_pipe
+        except:
+            pass
+        img2img_pipe = None
+    
+    # 清理GPU内存
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        print("🧹 GPU内存已清理")
     
     model_config = BASE_MODELS[base_model_type]
     device = get_device()
@@ -824,13 +829,10 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
             print(f"📏 长提示词检测: ~{token_count} tokens，启用Compel处理")
             
             from compel import Compel
+            # 🚨 修复SDXL Compel参数
             compel = Compel(
                 tokenizer=txt2img_pipe.tokenizer,
                 text_encoder=txt2img_pipe.text_encoder,
-                tokenizer_2=txt2img_pipe.tokenizer_2,
-                text_encoder_2=txt2img_pipe.text_encoder_2,
-                returned_embeddings_type="clip_mean_pooled",
-                requires_pooled=[False, True],  # SDXL需要pooled embeddings
             )
             
             # 生成长提示词的embeddings
@@ -840,18 +842,15 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
             
             # 使用预处理的embeddings
             generation_kwargs = {
-                "prompt_embeds": conditioning[0],  # text_encoder embeddings
-                "pooled_prompt_embeds": conditioning[1],  # pooled embeddings for SDXL
-                "negative_prompt_embeds": negative_conditioning[0] if negative_conditioning else None,
-                "negative_pooled_prompt_embeds": negative_conditioning[1] if negative_conditioning else None,
+                "prompt_embeds": conditioning,
+                "negative_prompt_embeds": negative_conditioning,
                 "height": int(height),
                 "width": int(width),
                 "num_inference_steps": int(steps),
                 "guidance_scale": float(cfg_scale),
                 "num_images_per_prompt": 1,
                 "output_type": "pil",
-                "return_dict": True,
-                "added_cond_kwargs": {}
+                "return_dict": True
             }
             print("✅ 长提示词embeddings生成成功")
             
@@ -867,8 +866,7 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
                 "guidance_scale": float(cfg_scale),
                 "num_images_per_prompt": 1,
                 "output_type": "pil",
-                "return_dict": True,
-                "added_cond_kwargs": {}
+                "return_dict": True
             }
             
     except Exception as compel_error:
@@ -883,8 +881,7 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
             "guidance_scale": float(cfg_scale),
             "num_images_per_prompt": 1,
             "output_type": "pil",
-            "return_dict": True,
-            "added_cond_kwargs": {}
+            "return_dict": True
         }
     
     # 设置随机种子
@@ -1439,7 +1436,8 @@ def get_loras_by_base_model() -> dict:
             {"id": "fisting", "name": "Fisting", "description": "拳交主题内容生成"},
             {"id": "on_off", "name": "On Off", "description": "穿衣/脱衣对比内容"},
             {"id": "blowjob", "name": "Blowjob", "description": "口交主题内容生成"},
-            {"id": "cum_on_face", "name": "Cum on Face", "description": "颜射主题内容生成"}
+            {"id": "cum_on_face", "name": "Cum on Face", "description": "颜射主题内容生成"},
+            {"id": "anal_sex", "name": "Anal Sex", "description": "肛交主题内容生成"}
         ],
         "anime": [
             {"id": "gayporn", "name": "Gayporn", "description": "男同动漫风格内容生成（默认）"},
@@ -2009,6 +2007,7 @@ LORA_FILE_PATTERNS = {
     "on_off": ["OnOff.safetensors", "on_off.safetensors", "onoff.safetensors"],
     "blowjob": ["blowjob.safetensors", "Blowjob.safetensors", "blow_job.safetensors"],
     "cum_on_face": ["cumonface.safetensors", "cum_on_face.safetensors", "CumOnFace.safetensors"],
+    "anal_sex": ["Anal_sex.safetensors", "anal_sex.safetensors", "AnalSex.safetensors", "analsex.safetensors"],
     
     # 动漫风格LoRA - 移除anime_nsfw，因为它现在是底层模型
     "gayporn": ["Gayporn.safetensors", "gayporn.safetensors", "GayPorn.safetensors"],

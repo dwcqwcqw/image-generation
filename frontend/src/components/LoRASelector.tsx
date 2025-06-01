@@ -33,7 +33,8 @@ const STATIC_LORAS = {
     { id: 'fisting', name: 'Fisting', description: '拳交主题内容生成' },
     { id: 'on_off', name: 'On Off', description: '穿衣/脱衣对比内容' },
     { id: 'blowjob', name: 'Blowjob', description: '口交主题内容生成' },
-    { id: 'cum_on_face', name: 'Cum on Face', description: '颜射主题内容生成' }
+    { id: 'cum_on_face', name: 'Cum on Face', description: '颜射主题内容生成' },
+    { id: 'anal_sex', name: 'Anal Sex', description: '肛交主题内容生成' }
   ],
   anime: [
     { id: 'gayporn', name: 'Gayporn', description: '男同动漫风格内容生成（默认）' },
@@ -64,10 +65,13 @@ export default function LoRASelector({ value, onChange, baseModel, disabled = fa
       defaultLora = null; // 其他情况默认不选择
     }
     setSelectedLoRA(defaultLora);
-    onChange(defaultLora ? { [defaultLora.id]: 1.0 } : {}); // 如果没有默认LoRA，传递空对象
+    onChange(defaultLora ? { [defaultLora.id]: 1.0 } : {}); // 动漫模型总是有默认LoRA
   }, [baseModel, availableLoras]); // 移除onChange和selectedLoRA的依赖，避免循环
 
   const handleLoRAChange = async (lora: LoRAOption | null) => {
+    // 动漫模型不允许选择null，真人模型可以
+    if (baseModel === 'anime' && lora === null) return;
+    
     // 如果lora为null，或者lora的id与当前选中的lora的id相同，则不执行任何操作
     if (lora === null && selectedLoRA === null) return;
     if (lora !== null && selectedLoRA !== null && lora.id === selectedLoRA.id) return;
@@ -77,7 +81,7 @@ export default function LoRASelector({ value, onChange, baseModel, disabled = fa
     
     try {
       setSelectedLoRA(lora);
-      onChange(lora ? { [lora.id]: 1.0 } : {}); // 如果lora为null，传递空对象
+      onChange(lora ? { [lora.id]: 1.0 } : {}); // 动漫模型总是返回有效的LoRA配置
       
       console.log(`LoRA选择已更新: ${lora?.id || 'None'} (将在生图时应用)`);
       
@@ -113,7 +117,7 @@ export default function LoRASelector({ value, onChange, baseModel, disabled = fa
         <div className="relative">
           <Listbox.Button className="relative w-full cursor-default rounded-lg bg-white py-2 pl-3 pr-10 text-left shadow-md focus:outline-none focus-visible:border-indigo-500 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-opacity-75 focus-visible:ring-offset-2 focus-visible:ring-offset-orange-300 sm:text-sm border border-gray-300">
             <span className="block truncate">
-              {isLoading ? '切换中...' : selectedLoRA?.name || (baseModel === 'anime' ? '选择LoRA (可选)' : '选择LoRA模型')}
+              {isLoading ? '切换中...' : selectedLoRA?.name || '选择LoRA模型'}
             </span>
             <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
               <ChevronsUpDown
@@ -130,28 +134,6 @@ export default function LoRASelector({ value, onChange, baseModel, disabled = fa
             leaveTo="opacity-0"
           >
             <Listbox.Options className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm">
-              {baseModel === 'anime' && (
-                <Listbox.Option
-                  key="none-lora"
-                  className={({ active }) =>
-                    `relative cursor-default select-none py-2 pl-10 pr-4 ${active ? 'bg-amber-100 text-amber-900' : 'text-gray-900'}`
-                  }
-                  value={null} // 允许选择null代表不使用LoRA
-                >
-                  {({ selected }) => (
-                    <>
-                      <span className={`block truncate ${selected ? 'font-medium' : 'font-normal'}`}>
-                        不使用LoRA
-                      </span>
-                      {selected && selectedLoRA === null ? (
-                        <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-amber-600">
-                          <Check className="h-5 w-5" aria-hidden="true" />
-                        </span>
-                      ) : null}
-                    </>
-                  )}
-                </Listbox.Option>
-              )}
               {availableLoras.map((lora) => (
                 <Listbox.Option
                   key={lora.id}
@@ -182,11 +164,6 @@ export default function LoRASelector({ value, onChange, baseModel, disabled = fa
       {selectedLoRA && (
         <p className="text-xs text-gray-500 mt-1">
           {selectedLoRA.description}
-        </p>
-      )}
-       {!selectedLoRA && baseModel === 'anime' && (
-        <p className="text-xs text-gray-500 mt-1">
-          当前未选择LoRA，将使用纯基础模型生成。
         </p>
       )}
     </div>
