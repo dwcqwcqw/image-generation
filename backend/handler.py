@@ -693,7 +693,7 @@ def generate_flux_images(prompt: str, negative_prompt: str, width: int, height: 
     return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text-to-image")
 
 def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, height: int, steps: int, cfg_scale: float, seed: int, num_images: int, base_model: str) -> list:
-    """使用标准diffusers管道生成图像 - 支持长提示词处理和优化参数"""
+    """使用标准diffusers管道生成图像 - 支持长提示词处理和WAI-NSFW-illustrious-SDXL优化参数"""
     global txt2img_pipe
     
     if txt2img_pipe is None:
@@ -703,7 +703,7 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
     
     # 🚨 全面的参数安全检查和修复
     if not prompt or prompt is None:
-        prompt = "masterpiece, best quality, 1boy, handsome man, anime style"
+        prompt = "masterpiece, best quality, amazing quality, 1boy, handsome man, anime style"
         print(f"⚠️  修复空prompt: {prompt}")
     
     if negative_prompt is None:
@@ -714,28 +714,43 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
     prompt = str(prompt).strip()
     negative_prompt = str(negative_prompt).strip()
     
-    # 🚨 修复：优化动漫模型参数，避免残次品
-    # 根据Anime_NSFW.safetensors的官方推荐参数
-    if width < 768 or height < 768:
-        print(f"⚠️  动漫模型分辨率过低 ({width}x{height})，调整为最小768x768")
-        width = max(768, width)
-        height = max(768, height)
+    # 🚨 根据CivitAI WAI-NSFW-illustrious-SDXL推荐设置
+    # 强制使用1024x1024或更大尺寸
+    if width < 1024 or height < 1024:
+        print(f"⚠️  WAI-NSFW-illustrious-SDXL模型需要1024x1024或更大 ({width}x{height})，调整为1024x1024")
+        width = max(1024, width)
+        height = max(1024, height)
     
-    # 动漫模型CFG优化
-    if cfg_scale < 6.0:
-        print(f"⚠️  动漫模型CFG过低 ({cfg_scale})，调整为7.0 (推荐6-9)")
-        cfg_scale = 7.0
-    elif cfg_scale > 10.0:
-        print(f"⚠️  动漫模型CFG过高 ({cfg_scale})，调整为7.5 (推荐6-9)")
-        cfg_scale = 7.5
+    # CFG Scale: 5-7 (CivitAI推荐)
+    if cfg_scale < 5.0:
+        print(f"⚠️  WAI-NSFW-illustrious-SDXL模型CFG过低 ({cfg_scale})，调整为6.0 (推荐5-7)")
+        cfg_scale = 6.0
+    elif cfg_scale > 7.0:
+        print(f"⚠️  WAI-NSFW-illustrious-SDXL模型CFG过高 ({cfg_scale})，调整为6.5 (推荐5-7)")
+        cfg_scale = 6.5
     
-    # 动漫模型步数优化
-    if steps < 20:
-        print(f"⚠️  动漫模型steps过低 ({steps})，调整为25 (推荐20-35)")
-        steps = 25
-    elif steps > 40:
-        print(f"⚠️  动漫模型steps过高 ({steps})，调整为35 (推荐20-35)")
-        steps = 35
+    # Steps: 15-30 (v14), 25-40 (older versions) - 我们使用25-30
+    if steps < 15:
+        print(f"⚠️  WAI-NSFW-illustrious-SDXL模型steps过低 ({steps})，调整为20 (推荐15-30)")
+        steps = 20
+    elif steps > 35:
+        print(f"⚠️  WAI-NSFW-illustrious-SDXL模型steps过高 ({steps})，调整为30 (推荐15-30)")
+        steps = 30
+    
+    # 🚨 修复：添加WAI-NSFW-illustrious-SDXL推荐的质量标签
+    if not prompt.startswith("masterpiece") and "masterpiece" not in prompt.lower():
+        prompt = "masterpiece, best quality, amazing quality, " + prompt
+        print(f"✨ 添加WAI-NSFW-illustrious-SDXL推荐质量标签")
+    
+    # 🚨 修复：添加推荐的负面提示
+    recommended_negative = "bad quality, worst quality, worst detail, sketch, censor"
+    if negative_prompt and negative_prompt.strip():
+        # 如果用户有自定义负面提示，添加到推荐负面提示之后
+        negative_prompt = recommended_negative + ", " + negative_prompt
+    else:
+        # 如果没有自定义负面提示，使用推荐的
+        negative_prompt = recommended_negative
+    print(f"🛡️ 使用WAI-NSFW-illustrious-SDXL推荐负面提示")
     
     print(f"🔍 最终参数检查:")
     print(f"  prompt: {repr(prompt)} (type: {type(prompt)})")
@@ -921,94 +936,104 @@ def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, hei
     
     print(f"🎯 请求模型: {base_model}, 当前加载模型: {current_base_model}")
     
-    # 检查是否需要切换模型
-    if current_base_model != base_model:
+    # 🚨 修复：先检查模型切换，再处理LoRA配置
+    # 检查模型是否需要切换
+    if base_model != current_base_model:
+        print(f"🎯 请求模型: {base_model}, 当前加载模型: {current_base_model}")
         print(f"🔄 需要切换模型: {current_base_model} -> {base_model}")
+        
         try:
             load_specific_model(base_model)
-        except Exception as e:
-            print(f"❌ 模型切换失败: {e}")
-            raise e
+            print(f"✅ 成功切换到 {base_model} 模型")
+        except Exception as switch_error:
+            print(f"❌ 模型切换失败: {switch_error}")
+            return {
+                'success': False,
+                'error': f'Failed to switch to {base_model} model: {str(switch_error)}'
+            }
     
-    # 确保模型已加载
-    if txt2img_pipe is None:
-        print(f"⚠️  模型未加载，加载 {base_model} 模型...")
-        load_specific_model(base_model)
+    # 🚨 确保有模型加载
+    if not txt2img_pipe:
+        print("❌ 没有加载任何模型")
+        return {
+            'success': False,
+            'error': 'No model loaded. Please switch to a valid model first.'
+        }
     
-    # 获取模型配置
-    model_config = BASE_MODELS.get(base_model)
-    if not model_config:
-        raise ValueError(f"Unknown base model: {base_model}")
-    
-    model_type = model_config["model_type"]
-    print(f"🎨 使用 {model_type} 管道生成图像...")
-    
-    # 🎯 模型特定参数优化
-    if model_type == "flux":
-        # FLUX模型参数优化 - 根据官方推荐 https://huggingface.co/lustlyai/Flux_Lustly.ai_Uncensored_nsfw_v1
-        # 官方推荐: guidance_scale=4, steps=20, 768x768分辨率
+    # 🚨 修复：模型切换完成后，再处理LoRA配置
+    # 检查是否需要更新LoRA配置（包括首次加载）
+    if lora_config:
+        print(f"🎨 更新LoRA配置: {lora_config}")
         
-        if cfg_scale < 3.0:
-            print(f"⚠️  FLUX CFG过低 ({cfg_scale})，调整为4.0 (官方推荐)")
-            cfg_scale = 4.0
-        elif cfg_scale > 6.0:
-            print(f"⚠️  FLUX CFG过高 ({cfg_scale})，调整为4.0 (官方推荐)")
-            cfg_scale = 4.0
+        # 检查当前模型类型
+        if current_base_model:
+            model_config = BASE_MODELS.get(current_base_model, {})
+            model_type = model_config.get("model_type", "unknown")
+            print(f"🎯 当前模型类型: {model_type}")
             
-        if steps < 15:
-            print(f"⚠️  FLUX steps过低 ({steps})，调整为20 (官方推荐)")
-            steps = 20
-        elif steps > 30:
-            print(f"⚠️  FLUX steps过高 ({steps})，调整为20 (官方推荐)")
-            steps = 20
+            # 清理现有LoRA权重
+            if txt2img_pipe:
+                try:
+                    print("🧹 Clearing existing LoRA weights...")
+                    completely_clear_lora_adapters()
+                except Exception as clear_error:
+                    print(f"⚠️  清理LoRA权重时出错: {clear_error}")
             
-        # 推荐768x768分辨率以获得更好质量
-        if width == 1024 and height == 1024:
-            print("💡 FLUX推荐768x768分辨率以获得更好质量")
-            width = 768
-            height = 768
-            
-        print(f"🔧 FLUX优化参数(官方推荐): steps={steps}, cfg_scale={cfg_scale}, size={width}x{height}")
-        return generate_flux_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model)
-        
-    elif model_type == "diffusers":
-        # 🚨 修复：动漫模型参数优化，避免残图问题
-        print("💡 动漫模型推荐1024x1024以上分辨率")
-        print("🔧 动漫模型优化参数(避免残图): steps=25, cfg_scale=7, size=1024x1024")
-        print("📝 Processing anime model generation...")
-        
-        # 🚨 修复：动漫模型强制最小参数，避免残图
-        if width < 1024 or height < 1024:
-            print(f"⚠️  动漫模型分辨率过低 ({width}x{height})，调整为最小1024x1024")
-            width = max(1024, width)
-            height = max(1024, height)
-        
-        # 动漫模型CFG优化
-        if cfg_scale < 6.0:
-            print(f"⚠️  动漫模型CFG过低 ({cfg_scale})，调整为7.0 (推荐6-9)")
-            cfg_scale = 7.0
-        elif cfg_scale > 10.0:
-            print(f"⚠️  动漫模型CFG过高 ({cfg_scale})，调整为8.0 (推荐6-9)")
-            cfg_scale = 8.0
-        
-        # 动漫模型步数优化
-        if steps < 25:
-            print(f"⚠️  动漫模型steps过低 ({steps})，调整为25 (推荐25-40)")
-            steps = 25
-        elif steps > 50:
-            print(f"⚠️  动漫模型steps过高 ({steps})，调整为40 (推荐25-40)")
-            steps = 40
-        
-        # 确保使用1024x1024以上分辨率
-        if width < 1024 or height < 1024:
-            print(f"💡 动漫模型 ({current_base_model}) 推荐1024x1024以上分辨率, 当前: {width}x{height}. 自动调整为1024x1024.")
-            width = 1024
-            height = 1024
-        
-        print(f"🔧 动漫模型优化参数: steps={steps}, cfg_scale={cfg_scale}, size={width}x{height}")
-        return generate_diffusers_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, current_base_model)
+            # 尝试加载新的LoRA配置
+            try:
+                if load_multiple_loras(lora_config):
+                    print("✅ LoRA配置更新成功")
+                else:
+                    print("⚠️  LoRA配置更新失败，使用基础模型")
+            except Exception as lora_load_error:
+                print(f"⚠️  LoRA加载出错: {lora_load_error}")
+                print("ℹ️  继续使用基础模型生成")
     else:
-        raise ValueError(f"Unsupported model type: {model_type}")
+        print("ℹ️  没有LoRA配置，使用基础模型生成")
+    
+    # 生成图像
+    try:
+        print(f"🎨 使用 {current_base_model} 模型生成图像...")
+        model_config = BASE_MODELS.get(current_base_model, {})
+        model_type = model_config.get("model_type", "unknown")
+        
+        if model_type == "flux":
+            print("💡 FLUX模型推荐768x768分辨率")
+            print("🔧 FLUX模型优化参数(官方推荐): steps=20, cfg_scale=4, size=768x768")
+            images = generate_flux_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, current_base_model)
+        elif model_type == "diffusers":
+            print("💡 动漫模型推荐1024x1024以上分辨率")
+            print("🔧 动漫模型优化参数(CivitAI推荐): steps=20, cfg_scale=6, size=1024x1024")
+            images = generate_diffusers_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, current_base_model)
+        else:
+            print(f"❌ 未知模型类型: {model_type}")
+            return {
+                'success': False,
+                'error': f'Unknown model type: {model_type}'
+            }
+        
+        # 🚨 检查生成结果是否为空
+        if not images or len(images) == 0:
+            print("❌ 图像生成失败，返回空结果")
+            return {
+                'success': False,
+                'error': 'Image generation failed - no images were created. This may be due to model compatibility issues or parameter problems.'
+            }
+        
+        print(f"✅ 成功生成 {len(images)} 张图像")
+        return {
+            'success': True,
+            'data': images
+        }
+        
+    except Exception as generation_error:
+        print(f"❌ 图像生成过程出错: {generation_error}")
+        import traceback
+        print(f"详细错误: {traceback.format_exc()}")
+        return {
+            'success': False,
+            'error': f'Image generation failed: {str(generation_error)}'
+        }
 
 def image_to_image(params: dict) -> list:
     """图生图生成 - 优化版本"""
@@ -1774,34 +1799,7 @@ def handler(job):
             base_model = job_input.get('baseModel', 'realistic')
             lora_config = job_input.get('lora_config', {})
             
-            # 检查是否需要更新LoRA配置
-            if lora_config and lora_config != current_lora_config:
-                print(f"🎨 更新LoRA配置: {lora_config}")
-                
-                # 检查当前模型类型
-                if current_base_model:
-                    model_config = BASE_MODELS.get(current_base_model, {})
-                    model_type = model_config.get("model_type", "unknown")
-                    print(f"🎯 当前模型类型: {model_type}")
-                    
-                    # 清理现有LoRA权重
-                    if txt2img_pipe:
-                        try:
-                            print("🧹 Clearing existing LoRA weights...")
-                            txt2img_pipe.unload_lora_weights()
-                        except Exception as clear_error:
-                            print(f"⚠️  清理LoRA权重时出错: {clear_error}")
-                    
-                    # 尝试加载新的LoRA配置
-                    try:
-                        if load_multiple_loras(lora_config):
-                            print("✅ LoRA配置更新成功")
-                        else:
-                            print("⚠️  LoRA配置更新失败，使用基础模型")
-                    except Exception as lora_load_error:
-                        print(f"⚠️  LoRA加载出错: {lora_load_error}")
-                        print("ℹ️  继续使用基础模型生成")
-            
+            # 🚨 修复：先检查模型切换，再处理LoRA配置
             # 检查模型是否需要切换
             if base_model != current_base_model:
                 print(f"🎯 请求模型: {base_model}, 当前加载模型: {current_base_model}")
@@ -1825,6 +1823,37 @@ def handler(job):
                     'error': 'No model loaded. Please switch to a valid model first.'
                 }
             
+            # 🚨 修复：模型切换完成后，再处理LoRA配置
+            # 检查是否需要更新LoRA配置（包括首次加载）
+            if lora_config:
+                print(f"🎨 更新LoRA配置: {lora_config}")
+                
+                # 检查当前模型类型
+                if current_base_model:
+                    model_config = BASE_MODELS.get(current_base_model, {})
+                    model_type = model_config.get("model_type", "unknown")
+                    print(f"🎯 当前模型类型: {model_type}")
+                    
+                    # 清理现有LoRA权重
+                    if txt2img_pipe:
+                        try:
+                            print("🧹 Clearing existing LoRA weights...")
+                            completely_clear_lora_adapters()
+                        except Exception as clear_error:
+                            print(f"⚠️  清理LoRA权重时出错: {clear_error}")
+                    
+                    # 尝试加载新的LoRA配置
+                    try:
+                        if load_multiple_loras(lora_config):
+                            print("✅ LoRA配置更新成功")
+                        else:
+                            print("⚠️  LoRA配置更新失败，使用基础模型")
+                    except Exception as lora_load_error:
+                        print(f"⚠️  LoRA加载出错: {lora_load_error}")
+                        print("ℹ️  继续使用基础模型生成")
+            else:
+                print("ℹ️  没有LoRA配置，使用基础模型生成")
+            
             # 生成图像
             try:
                 print(f"🎨 使用 {current_base_model} 模型生成图像...")
@@ -1837,7 +1866,7 @@ def handler(job):
                     images = generate_flux_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, current_base_model)
                 elif model_type == "diffusers":
                     print("💡 动漫模型推荐1024x1024以上分辨率")
-                    print("🔧 动漫模型优化参数(CivitAI推荐): steps=20, cfg_scale=7, size=1024x1024")
+                    print("🔧 动漫模型优化参数(CivitAI推荐): steps=20, cfg_scale=6, size=1024x1024")
                     images = generate_diffusers_images(prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, current_base_model)
                 else:
                     print(f"❌ 未知模型类型: {model_type}")
