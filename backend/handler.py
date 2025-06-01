@@ -829,21 +829,24 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
             print(f"📏 长提示词检测: ~{token_count} tokens，启用Compel处理")
             
             from compel import Compel
-            # 🚨 修复SDXL Compel参数
+            # 🚨 修复SDXL Compel参数 - 添加text_encoder_2和pooled支持
             compel = Compel(
-                tokenizer=txt2img_pipe.tokenizer,
-                text_encoder=txt2img_pipe.text_encoder,
+                tokenizer=[txt2img_pipe.tokenizer, txt2img_pipe.tokenizer_2],
+                text_encoder=[txt2img_pipe.text_encoder, txt2img_pipe.text_encoder_2],
+                requires_pooled=[False, True]  # SDXL需要pooled embeds
             )
             
-            # 生成长提示词的embeddings
+            # 生成长提示词的embeddings (包括pooled_prompt_embeds)
             print("🧬 使用Compel生成长提示词embeddings...")
-            conditioning = compel(prompt)
-            negative_conditioning = compel(negative_prompt) if negative_prompt else None
+            conditioning, pooled_conditioning = compel(prompt)
+            negative_conditioning, negative_pooled_conditioning = compel(negative_prompt) if negative_prompt else (None, None)
             
-            # 使用预处理的embeddings
+            # 使用预处理的embeddings (包括pooled)
             generation_kwargs = {
                 "prompt_embeds": conditioning,
                 "negative_prompt_embeds": negative_conditioning,
+                "pooled_prompt_embeds": pooled_conditioning,
+                "negative_pooled_prompt_embeds": negative_pooled_conditioning,
                 "height": int(height),
                 "width": int(width),
                 "num_inference_steps": int(steps),
@@ -884,18 +887,13 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
             "return_dict": True
         }
     
-    # 设置随机种子
-    if seed != -1:
-        import torch
-        generator = torch.Generator(device=txt2img_pipe.device).manual_seed(int(seed))
-        generation_kwargs["generator"] = generator
-    
+    # 种子设置现在在generate_images_common中处理，支持多张不同种子
     print(f"🎯 Generation kwargs: {list(generation_kwargs.keys())}")
     
     return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text_to_image")
 
 def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt: str, width: int, height: int, steps: int, cfg_scale: float, seed: int, num_images: int, base_model: str, task_type: str) -> list:
-    """通用图像生成逻辑 - 简化版，专注于基础功能"""
+    """通用图像生成逻辑 - 支持真正的多张生成"""
     global txt2img_pipe, current_base_model
     
     # 🚨 修复：确保所有参数都不为None，避免NoneType错误
@@ -917,28 +915,35 @@ def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt
     # 🚨 动漫模型禁用autocast避免LayerNorm精度问题
     use_autocast = model_type == "flux"  # 只有FLUX模型使用autocast
     
-    # 🚨 对于动漫模型，强制单张生成避免复杂的批量处理
-    if model_type == "diffusers" and num_images > 1:
-        print(f"🎯 动漫模型强制单张生成，忽略批量请求")
-        actual_num_images = 1
-    else:
-        actual_num_images = num_images
+    print(f"🎨 开始生成 {num_images} 张图像 (模型: {model_type})")
     
-    # 简化生成逻辑 - 直接进行单张生成
-    try:
-        print(f"🎨 开始生成图像 (模型: {model_type})")
-        
-        # 生成图像 - 根据模型类型选择是否使用autocast
-        if use_autocast:
-            with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
-                result = txt2img_pipe(**generation_kwargs)
-        else:
-            print("💡 动漫模型: 跳过autocast使用float32精度")
-            result = txt2img_pipe(**generation_kwargs)
-        
-        # 处理结果
-        if hasattr(result, 'images') and result.images:
-            for i, image in enumerate(result.images):
+    # 🎯 修复：循环生成真正的多张图片
+    for i in range(num_images):
+        try:
+            # 为每张图片设置不同的随机种子
+            current_generation_kwargs = generation_kwargs.copy()
+            
+            if seed != -1:
+                # 基于原始种子生成不同的种子
+                current_seed = seed + i
+                import torch
+                generator = torch.Generator(device=txt2img_pipe.device).manual_seed(int(current_seed))
+                current_generation_kwargs["generator"] = generator
+                print(f"🎲 图像 {i+1} 种子: {current_seed}")
+            else:
+                print(f"🎲 图像 {i+1} 随机种子")
+            
+            # 生成图像 - 根据模型类型选择是否使用autocast
+            if use_autocast:
+                with torch.autocast(device_type="cuda" if torch.cuda.is_available() else "cpu"):
+                    result = txt2img_pipe(**current_generation_kwargs)
+            else:
+                print(f"💡 动漫模型: 跳过autocast使用float32精度 (图像 {i+1})")
+                result = txt2img_pipe(**current_generation_kwargs)
+            
+            # 处理结果
+            if hasattr(result, 'images') and result.images and len(result.images) > 0:
+                image = result.images[0]  # 取第一张图片
                 if image is not None:
                     try:
                         # 上传到R2
@@ -954,32 +959,24 @@ def generate_images_common(generation_kwargs: dict, prompt: str, negative_prompt
                             'height': height,
                             'steps': steps,
                             'cfg_scale': cfg_scale,
-                            'seed': seed
+                            'seed': current_seed if seed != -1 else -1
                         })
-                        print(f"✅ 图像 {i+1} 生成成功: {filename}")
+                        print(f"✅ 图像 {i+1}/{num_images} 生成成功: {filename}")
                     except Exception as upload_error:
                         print(f"❌ 上传图像 {i+1} 失败: {upload_error}")
                         continue
-        else:
-            print("⚠️  管道返回空结果或无图像")
-            
-    except Exception as e:
-        print(f"❌ 生成图像失败: {e}")
-        import traceback
-        print(f"详细错误: {traceback.format_exc()}")
+                else:
+                    print(f"⚠️  图像 {i+1} 生成结果为空")
+            else:
+                print(f"⚠️  图像 {i+1} 管道返回空结果或无图像")
+                
+        except Exception as e:
+            print(f"❌ 生成图像 {i+1} 失败: {e}")
+            import traceback
+            print(f"详细错误: {traceback.format_exc()}")
+            continue
     
-    # 如果需要多张但只生成了一张，复制结果
-    if len(results) == 1 and num_images > 1:
-        print(f"🔄 为满足 {num_images} 张需求，复制单张结果")
-        original = results[0]
-        for i in range(1, num_images):
-            # 创建新的文件名但使用相同图像
-            new_filename = f"txt2img_{current_base_model}_{int(time.time())}_{i}_copy.png"
-            copy_result = original.copy()
-            copy_result['filename'] = new_filename
-            results.append(copy_result)
-    
-    print(f"🎯 总共生成了 {len(results)} 张图像")
+    print(f"🎯 总共成功生成了 {len(results)} 张图像")
     return results
 
 def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, height: int = 1024, steps: int = 25, cfg_scale: float = 5.0, seed: int = -1, num_images: int = 1, base_model: str = "realistic") -> list:
