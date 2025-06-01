@@ -769,8 +769,29 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
         token_pattern = r'\w+|[^\w\s]'
         estimated_tokens = len(re.findall(token_pattern, prompt.lower()))
         
-        # 更积极地启用Compel：超过50个准确token就使用长prompt处理
-        if estimated_tokens > 50:  # 降低阈值，更准确的token计算
+        # 🚨 修复：检查是否加载了LoRA，如果有LoRA则禁用Compel避免兼容性问题
+        global current_lora_config
+        has_lora = bool(current_lora_config and any(v > 0 for v in current_lora_config.values()))
+        
+        if has_lora:
+            print(f"⚠️  检测到LoRA配置 {current_lora_config}，禁用Compel避免兼容性问题")
+            print(f"📝 长提示词({estimated_tokens} tokens)将使用标准SDXL处理，可能会截断")
+            
+            # 强制使用标准处理，避免Compel与LoRA的兼容性问题
+            generation_kwargs = {
+                "prompt": processed_prompt,
+                "negative_prompt": processed_negative_prompt,
+                "height": int(height),
+                "width": int(width),
+                "num_inference_steps": int(steps),
+                "guidance_scale": float(cfg_scale),
+                "num_images_per_prompt": 1,
+                "output_type": "pil",
+                "return_dict": True
+            }
+            print("✅ 使用标准SDXL处理（LoRA兼容模式）")
+            
+        elif estimated_tokens > 50:  # 只有在没有LoRA时才使用Compel
             print(f"📏 长提示词检测: {estimated_tokens} tokens (准确计算)，启用Compel处理")
             
             from compel import Compel
