@@ -309,18 +309,32 @@ def load_diffusers_model(base_path: str, device: str) -> tuple:
         else:
             print("🚫 模型CPU Offload已禁用 (特定于Anime_NSFW.safetensors测试)")
 
-        img2img_pipeline = img2img_pipeline_class(
-            vae=txt2img_pipeline.vae,
-            text_encoder=getattr(txt2img_pipeline, 'text_encoder', None), # XL has text_encoder & text_encoder_2
-            text_encoder_2=getattr(txt2img_pipeline, 'text_encoder_2', None), # Handle missing for non-XL
-            tokenizer=getattr(txt2img_pipeline, 'tokenizer', None),
-            tokenizer_2=getattr(txt2img_pipeline, 'tokenizer_2', None),
-            unet=txt2img_pipeline.unet,
-            scheduler=txt2img_pipeline.scheduler,
-            safety_checker=None,
-            feature_extractor=getattr(txt2img_pipeline, 'feature_extractor', None),
-            requires_safety_checker=False
-        ).to(device)
+        if img2img_pipeline_class == StableDiffusionXLImg2ImgPipeline:
+            # SDXL img2img管道不接受safety_checker参数
+            img2img_pipeline = img2img_pipeline_class(
+                vae=txt2img_pipeline.vae,
+                text_encoder=txt2img_pipeline.text_encoder,
+                text_encoder_2=txt2img_pipeline.text_encoder_2,
+                tokenizer=txt2img_pipeline.tokenizer,
+                tokenizer_2=txt2img_pipeline.tokenizer_2,
+                unet=txt2img_pipeline.unet,
+                scheduler=txt2img_pipeline.scheduler,
+                feature_extractor=getattr(txt2img_pipeline, 'feature_extractor', None),
+            ).to(device)
+        else:
+            # 标准SD img2img管道接受safety_checker参数
+            img2img_pipeline = img2img_pipeline_class(
+                vae=txt2img_pipeline.vae,
+                text_encoder=getattr(txt2img_pipeline, 'text_encoder', None),
+                text_encoder_2=getattr(txt2img_pipeline, 'text_encoder_2', None),
+                tokenizer=getattr(txt2img_pipeline, 'tokenizer', None),
+                tokenizer_2=getattr(txt2img_pipeline, 'tokenizer_2', None),
+                unet=txt2img_pipeline.unet,
+                scheduler=txt2img_pipeline.scheduler,
+                safety_checker=None,
+                feature_extractor=getattr(txt2img_pipeline, 'feature_extractor', None),
+                requires_safety_checker=False
+            ).to(device)
         
         txt2img_pipeline.safety_checker = None
         txt2img_pipeline.requires_safety_checker = False
@@ -759,7 +773,8 @@ def generate_flux_images(prompt: str, negative_prompt: str, width: int, height: 
     except Exception as e:
         print(f"⚠️ FLUX pipeline.encode_prompt() failed: {e}. Using raw prompts.")
         generation_kwargs["prompt"] = prompt
-        generation_kwargs["negative_prompt"] = negative_prompt
+        # 🚨 FLUX模型不支持negative_prompt，移除此参数
+        # generation_kwargs["negative_prompt"] = negative_prompt  # <-- 注释掉这行
 
     # 设置随机种子
     if seed == -1:
