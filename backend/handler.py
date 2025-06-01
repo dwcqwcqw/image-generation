@@ -840,11 +840,31 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
                         # 生成embeddings
                         with torch.no_grad():
                             prompt_embeds = txt2img_pipe.text_encoder(text_input_ids)[0]
-                            prompt_embeds_2 = txt2img_pipe.text_encoder_2(text_input_ids_2)[0]
-                            pooled_prompt_embeds = txt2img_pipe.text_encoder_2(text_input_ids_2)[1]
+                            
+                            # 🚨 修复：正确调用text_encoder_2，参考diffusers标准实现  
+                            text_encoder_2_outputs = txt2img_pipe.text_encoder_2(
+                                text_input_ids_2,
+                                output_hidden_states=True,
+                            )
+                            # text_encoder_2返回: text_embeds, pooled_output, hidden_states
+                            # 我们需要hidden_states[-2] (倒数第二层) 作为prompt_embeds_2
+                            # 而text_embeds作为pooled_prompt_embeds
+                            pooled_prompt_embeds = text_encoder_2_outputs[0]  # text_embeds (pooled output)
+                            prompt_embeds_2 = text_encoder_2_outputs.hidden_states[-2]  # penultimate hidden state
                         
-                        # 连接两个text encoder的输出
-                        segment_prompt_embeds = torch.concat([prompt_embeds, prompt_embeds_2], dim=-1)
+                        # 🚨 修复：确保维度匹配再连接
+                        # CLIP输出: [batch_size, seq_len, hidden_size] 
+                        # OpenCLIP输出: [batch_size, seq_len, hidden_size]
+                        print(f"📐 CLIP embeds shape: {prompt_embeds.shape}")
+                        print(f"📐 OpenCLIP embeds shape: {prompt_embeds_2.shape}")
+                        print(f"📐 Pooled embeds shape: {pooled_prompt_embeds.shape}")
+                        
+                        # 连接两个text encoder的输出（确保维度匹配）
+                        if len(prompt_embeds.shape) == len(prompt_embeds_2.shape):
+                            segment_prompt_embeds = torch.concat([prompt_embeds, prompt_embeds_2], dim=-1)
+                        else:
+                            print(f"⚠️  维度不匹配，使用OpenCLIP输出: {prompt_embeds_2.shape}")
+                            segment_prompt_embeds = prompt_embeds_2
                         
                         all_prompt_embeds.append(segment_prompt_embeds)
                         all_pooled_embeds.append(pooled_prompt_embeds)
@@ -874,10 +894,20 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
                     
                     with torch.no_grad():
                         neg_prompt_embeds = txt2img_pipe.text_encoder(neg_text_input_ids)[0]
-                        neg_prompt_embeds_2 = txt2img_pipe.text_encoder_2(neg_text_input_ids_2)[0]
-                        neg_pooled_prompt_embeds = txt2img_pipe.text_encoder_2(neg_text_input_ids_2)[1]
+                        
+                        # 🚨 修复：负向embeddings也使用正确的text_encoder_2调用
+                        neg_text_encoder_2_outputs = txt2img_pipe.text_encoder_2(
+                            neg_text_input_ids_2,
+                            output_hidden_states=True,
+                        )
+                        neg_pooled_prompt_embeds = neg_text_encoder_2_outputs[0]  # text_embeds (pooled output)
+                        neg_prompt_embeds_2 = neg_text_encoder_2_outputs.hidden_states[-2]  # penultimate hidden state
                     
-                    negative_prompt_embeds = torch.concat([neg_prompt_embeds, neg_prompt_embeds_2], dim=-1)
+                    # 🚨 修复：负向embeddings也要确保维度匹配
+                    if len(neg_prompt_embeds.shape) == len(neg_prompt_embeds_2.shape):
+                        negative_prompt_embeds = torch.concat([neg_prompt_embeds, neg_prompt_embeds_2], dim=-1)
+                    else:
+                        negative_prompt_embeds = neg_prompt_embeds_2
                     
                     generation_kwargs = {
                         "prompt_embeds": combined_prompt_embeds,
