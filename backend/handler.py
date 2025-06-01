@@ -813,7 +813,7 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
                 'guidance_scale': cfg_scale,
                 'num_images_per_prompt': 1,
                 'output_type': 'pil',
-                'return_dict': False
+                'return_dict': True  # 🚨 修复：统一使用return_dict=True
             }
         else:
             # 没有LoRA时使用正常处理
@@ -2159,7 +2159,7 @@ def completely_clear_lora_adapters():
 def compress_prompt_to_77_tokens(prompt: str, max_tokens: int = 75) -> str:
     """
     智能压缩prompt到指定token数量以内
-    保留最重要的关键词和描述
+    转换为纯关键词格式，符合AI绘图最佳实践
     """
     import re
     
@@ -2170,72 +2170,54 @@ def compress_prompt_to_77_tokens(prompt: str, max_tokens: int = 75) -> str:
     if current_tokens <= max_tokens:
         return prompt
     
-    print(f"🔧 压缩prompt: {current_tokens} tokens -> {max_tokens} tokens")
+    print(f"🔧 压缩prompt: {current_tokens} tokens -> {max_tokens} tokens (关键词模式)")
     
-    # 定义重要性权重
-    priority_keywords = {
-        # 质量标签 - 最高优先级
-        'quality': ['masterpiece', 'best quality', 'amazing quality', 'high quality', 'ultra quality'],
-        # 主体描述 - 高优先级  
-        'subject': ['man', 'boy', 'male', 'muscular', 'handsome', 'lean', 'naked', 'nude'],
-        # 身体部位 - 中高优先级
-        'anatomy': ['torso', 'chest', 'abs', 'penis', 'erect', 'flaccid', 'body'],
-        # 动作姿态 - 中优先级
-        'pose': ['reclining', 'lying', 'sitting', 'standing', 'pose', 'position'],
-        # 环境道具 - 中优先级
-        'environment': ['bed', 'sheets', 'satin', 'luxurious', 'room', 'background'],
-        # 光影效果 - 低优先级
-        'lighting': ['lighting', 'illuminated', 'soft', 'moody', 'warm', 'cinematic'],
-        # 情感表达 - 低优先级
-        'emotion': ['serene', 'intense', 'confident', 'contemplation', 'allure']
-    }
+    # 🎯 高优先级关键词提取
+    essential_keywords = []
     
-    # 🚨 修复：使用set来跟踪已添加的词，避免重复
-    words = prompt.split()
-    used_words = set()  # 跟踪已使用的词
-    compressed_parts = []
-    remaining_tokens = max_tokens
+    # 质量标签（最高优先级）
+    quality_terms = ['masterpiece', 'best quality', 'amazing quality']
+    for term in quality_terms:
+        if term in prompt.lower():
+            essential_keywords.append(term)
     
-    # 按优先级处理
-    priority_order = ['quality', 'subject', 'anatomy', 'pose', 'environment', 'lighting', 'emotion']
+    # 主体关键词（高优先级）
+    subject_words = ['man', 'boy', 'male', 'muscular', 'lean', 'handsome', 'athletic', 'fit']
+    anatomy_words = ['torso', 'chest', 'penis', 'erect', 'flaccid', 'body', 'muscles']
+    pose_words = ['reclining', 'lying', 'sitting', 'relaxed', 'confident']
+    environment_words = ['bed', 'sheets', 'satin', 'luxurious']
+    style_words = ['soft', 'lighting', 'warm', 'cinematic', 'sensual', 'intimate']
     
-    for category in priority_order:
-        if remaining_tokens <= 5:  # 预留一些空间
-            break
-            
-        category_keywords = priority_keywords[category]
+    # 🚨 从原始prompt中提取存在的关键词（避免重复）
+    words_in_prompt = prompt.lower().split()
+    for word in words_in_prompt:
+        word_clean = re.sub(r'[^\w]', '', word)
         
-        # 找到属于这个类别的词
-        for word in words:
-            if remaining_tokens <= 0:
-                break
-                
-            word_clean = word.lower().strip('.,!?;:')
-            
-            # 检查是否属于当前类别 且 没有被使用过
-            if word_clean not in used_words and any(keyword in word_clean for keyword in category_keywords):
-                word_tokens = len(re.findall(token_pattern, word.lower()))
-                if word_tokens <= remaining_tokens:
-                    compressed_parts.append(word)
-                    used_words.add(word_clean)
-                    remaining_tokens -= word_tokens
+        # 检查是否为重要关键词
+        if word_clean in subject_words + anatomy_words + pose_words + environment_words + style_words:
+            if word_clean not in essential_keywords:
+                essential_keywords.append(word_clean)
     
-    # 🚨 修复：如果还有空间，添加其他重要但未分类的词（避免重复）
-    if remaining_tokens > 0:
-        for word in words:
-            if remaining_tokens <= 0:
-                break
-                
-            word_clean = word.lower().strip('.,!?;:')
-            if word_clean not in used_words:
-                word_tokens = len(re.findall(token_pattern, word.lower()))
-                if word_tokens <= remaining_tokens:
-                    compressed_parts.append(word)
-                    used_words.add(word_clean)
-                    remaining_tokens -= word_tokens
+    # 🎯 严格控制token数量
+    final_keywords = []
+    token_count = 0
     
-    compressed_prompt = ' '.join(compressed_parts)
-    final_tokens = len(re.findall(token_pattern, compressed_prompt.lower()))
+    for keyword in essential_keywords:
+        # 计算添加这个关键词的token成本
+        if keyword == essential_keywords[0]:
+            keyword_cost = len(re.findall(token_pattern, keyword))  # 第一个词不需要逗号
+        else:
+            keyword_cost = len(re.findall(token_pattern, f", {keyword}"))  # 后续词包含逗号
+        
+        if token_count + keyword_cost <= max_tokens:
+            final_keywords.append(keyword)
+            token_count += keyword_cost
+        else:
+            break  # 达到limit就停止
     
-    print(f"✅ 压缩完成: '{compressed_prompt}' ({final_tokens} tokens)")
+    # 生成纯关键词格式
+    compressed_prompt = ', '.join(final_keywords)
+    final_tokens = len(re.findall(token_pattern, compressed_prompt))
+    
+    print(f"✅ 关键词压缩完成: '{compressed_prompt}' ({final_tokens} tokens)")
     return compressed_prompt
