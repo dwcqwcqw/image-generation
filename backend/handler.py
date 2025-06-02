@@ -1481,16 +1481,33 @@ def load_multiple_loras(lora_config: dict) -> bool:
                 import time
                 import random
                 import uuid
-                unique_id = str(uuid.uuid4())[:8]  # 8位UUID
-                timestamp = int(time.time() * 1000)  # 毫秒级时间戳
-                unique_adapter_name = f"{lora_id}_{timestamp}_{unique_id}"
-                print(f"🔧 使用新版diffusers LoRA API加载: {lora_id} (适配器名: {unique_adapter_name})")
+                import threading
+                import os
                 
-                # 先检查适配器是否已存在，如果存在就强制清理
-                if hasattr(txt2img_pipe.unet, '_lora_adapters') and unique_adapter_name in txt2img_pipe.unet._lora_adapters:
-                    print(f"⚠️  检测到适配器名称冲突，重新生成: {unique_adapter_name}")
-                    unique_id = str(uuid.uuid4())[:8]
-                    unique_adapter_name = f"{lora_id}_{timestamp}_{unique_id}_retry"
+                # 创建基于多个因素的超强唯一标识符
+                base_timestamp = int(time.time() * 1000000)  # 微秒级时间戳
+                thread_id = threading.get_ident()
+                process_id = os.getpid()
+                unique_uuid = str(uuid.uuid4()).replace('-', '')[:16]  # 16位清洁UUID
+                random_suffix = random.randint(100000, 999999)
+                
+                unique_adapter_name = f"{lora_id}_{base_timestamp}_{thread_id}_{process_id}_{unique_uuid}_{random_suffix}"
+                print(f"🔧 使用超强唯一适配器名称: {lora_id} -> {unique_adapter_name}")
+                
+                # 确保名称真正唯一
+                retry_count = 0
+                while (hasattr(txt2img_pipe.unet, '_lora_adapters') and 
+                       unique_adapter_name in txt2img_pipe.unet._lora_adapters and 
+                       retry_count < 3):
+                    retry_count += 1
+                    random_suffix = random.randint(100000, 999999)
+                    unique_adapter_name = f"{lora_id}_{base_timestamp}_{thread_id}_{process_id}_{unique_uuid}_{random_suffix}_retry{retry_count}"
+                    print(f"⚠️  名称冲突，重试 {retry_count}: {unique_adapter_name}")
+                
+                if retry_count >= 3:
+                    # 强制清理后重新生成
+                    completely_clear_lora_adapters()
+                    unique_adapter_name = f"{lora_id}_{base_timestamp}_{thread_id}_{process_id}_{unique_uuid}_{random_suffix}_final"
                 
                 txt2img_pipe.load_lora_weights(lora_path, adapter_name=unique_adapter_name)
                 
@@ -1511,22 +1528,40 @@ def load_multiple_loras(lora_config: dict) -> bool:
                 
                 print(f"🔧 加载多个LoRA: {list(compatible_loras.keys())}")
                 
-                # 逐个加载LoRA，使用更强的唯一适配器名称
+                # 逐个加载LoRA，使用超强唯一适配器名称
                 import time
                 import random
                 import uuid
-                timestamp = int(time.time() * 1000)
+                import threading
+                import os
+                
+                # 创建全局唯一的基础标识符
+                base_timestamp = int(time.time() * 1000000)  # 微秒级时间戳
+                thread_id = threading.get_ident()
+                process_id = os.getpid()
+                
                 for i, (lora_id, lora_data) in enumerate(compatible_loras.items()):
-                    unique_id = str(uuid.uuid4())[:8]
-                    unique_adapter_name = f"{lora_id}_{timestamp}_{i}_{unique_id}"
-                    adapter_names.append(unique_adapter_name)
+                    unique_uuid = str(uuid.uuid4()).replace('-', '')[:16]
+                    random_suffix = random.randint(100000, 999999)
+                    unique_adapter_name = f"{lora_id}_{base_timestamp}_{i}_{thread_id}_{process_id}_{unique_uuid}_{random_suffix}"
                     
-                    # 检查冲突
-                    if hasattr(txt2img_pipe.unet, '_lora_adapters') and unique_adapter_name in txt2img_pipe.unet._lora_adapters:
-                        print(f"⚠️  检测到多LoRA适配器名称冲突，重新生成: {unique_adapter_name}")
-                        unique_id = str(uuid.uuid4())[:8]
-                        unique_adapter_name = f"{lora_id}_{timestamp}_{i}_{unique_id}_retry"
-                        adapter_names[-1] = unique_adapter_name
+                    # 确保名称真正唯一
+                    retry_count = 0
+                    while (hasattr(txt2img_pipe.unet, '_lora_adapters') and 
+                           unique_adapter_name in txt2img_pipe.unet._lora_adapters and 
+                           retry_count < 3):
+                        retry_count += 1
+                        random_suffix = random.randint(100000, 999999)
+                        unique_adapter_name = f"{lora_id}_{base_timestamp}_{i}_{thread_id}_{process_id}_{unique_uuid}_{random_suffix}_retry{retry_count}"
+                        print(f"⚠️  多LoRA名称冲突，重试 {retry_count}: {unique_adapter_name}")
+                    
+                    if retry_count >= 3:
+                        # 强制清理后重新生成
+                        completely_clear_lora_adapters()
+                        unique_adapter_name = f"{lora_id}_{base_timestamp}_{i}_{thread_id}_{process_id}_{unique_uuid}_{random_suffix}_final"
+                    
+                    adapter_names.append(unique_adapter_name)
+                    print(f"  🔧 加载LoRA {i+1}/{len(compatible_loras)}: {lora_id} -> {unique_adapter_name}")
                     
                     txt2img_pipe.load_lora_weights(lora_data["path"], adapter_name=unique_adapter_name)
                     if img2img_pipe:
@@ -2091,55 +2126,111 @@ def compress_prompt_to_77_tokens(prompt: str, max_tokens: int = 75) -> str:
         print(f"✅ 中度压缩完成: {current_token_count} tokens")
         return compressed
     
-    # 🚨 修复：重度压缩但保留更多关键词
+    # 🚨 修复：重度压缩但保留更多关键词，目标70-75个token
     # 分析prompt结构，保留最重要的部分
     prompt_lower = prompt.lower()
     
-    # 提取关键词，但保留更多内容
-    essential_keywords = []
+    # 🚨 修复：重新设计压缩策略，避免过度压缩
+    all_keywords = []
     
-    # 质量标签（保留）
-    quality_terms = re.findall(r'(?:masterpiece|best quality|amazing quality|very aesthetic|absurdres|high quality|detailed|ultra detailed)', prompt_lower)
-    essential_keywords.extend(quality_terms)
+    # 第1层：质量标签（必须保留）
+    quality_terms = re.findall(r'(?:masterpiece|best quality|amazing quality|very aesthetic|absurdres|high quality|detailed|ultra detailed|perfect)', prompt_lower)
+    all_keywords.extend(quality_terms[:3])  # 最多3个质量词
     
-    # 主体描述（保留核心）
-    subject_matches = re.findall(r'(?:handsome\s+)?(?:muscular\s+)?(?:athletic\s+)?(?:man|male|boy)', prompt_lower)
-    if subject_matches:
-        essential_keywords.extend(subject_matches[:2])  # 保留前2个主体描述
+    # 第2层：主体描述（核心保留）
+    subject_patterns = [
+        r'(?:handsome\s+)?(?:muscular\s+)?(?:athletic\s+)?(?:young\s+)?(?:man|male|boy|guy)',
+        r'(?:bare\s+)?(?:chest|torso|body)',
+        r'(?:strong\s+)?(?:arms|shoulders|muscles)',
+        r'(?:confident|relaxed|smiling|looking)',
+    ]
+    for pattern in subject_patterns:
+        matches = re.findall(pattern, prompt_lower)
+        all_keywords.extend(matches[:2])  # 每类最多2个
     
-    # 身体部位（选择性保留）
-    body_terms = re.findall(r'(?:bare\s+chest|chest|torso|abs|muscles|body|arms|legs)', prompt_lower)
-    essential_keywords.extend(body_terms[:3])  # 保留前3个身体词汇
+    # 第3层：身体特征（适当保留）
+    body_terms = re.findall(r'(?:abs|six-pack|biceps|pecs|triceps|lats|delts|quads|calves|neck|jaw|chin|face)', prompt_lower)
+    all_keywords.extend(body_terms[:4])  # 最多4个身体特征
     
-    # 姿势和场景（选择性保留）  
-    pose_terms = re.findall(r'(?:sitting|lying|standing|relaxed|confident|smiling|looking|raised|behind)', prompt_lower)
-    essential_keywords.extend(pose_terms[:4])  # 保留前4个姿势词汇
+    # 第4层：外观特征（选择性保留）
+    appearance_terms = re.findall(r'(?:tan\s+skin|fair\s+skin|dark\s+skin|short\s+hair|long\s+hair|beard|mustache|stubble|tattoos|piercings|jewelry)', prompt_lower)
+    all_keywords.extend(appearance_terms[:3])  # 最多3个外观特征
     
-    # 环境和物品（选择性保留）
-    env_terms = re.findall(r'(?:couch|bed|chair|table|room|background|clothing|jeans|boots)', prompt_lower)
-    essential_keywords.extend(env_terms[:3])  # 保留前3个环境词汇
+    # 第5层：姿势和表情（适当保留）
+    pose_terms = re.findall(r'(?:sitting|lying|standing|leaning|raised|behind|crossed|flexing|posing|stretching)', prompt_lower)
+    all_keywords.extend(pose_terms[:4])  # 最多4个姿势
     
-    # 外观特征（选择性保留）
-    appearance_terms = re.findall(r'(?:tan\s+skin|short\s+beard|tattoos|piercings|hair|sweaty)', prompt_lower)
-    essential_keywords.extend(appearance_terms[:4])  # 保留前4个外观特征
+    # 第6层：环境和物品（选择性保留）
+    env_terms = re.findall(r'(?:couch|sofa|bed|chair|table|desk|room|bedroom|living\s+room|kitchen|bathroom|gym|outdoors|beach|park)', prompt_lower)
+    all_keywords.extend(env_terms[:3])  # 最多3个环境
     
-    # 去重并保持合理数量
+    # 第7层：服装和配饰（适当保留）
+    clothing_terms = re.findall(r'(?:shirtless|topless|underwear|briefs|boxers|jeans|pants|shorts|boots|shoes|watch|necklace|bracelet)', prompt_lower)
+    all_keywords.extend(clothing_terms[:3])  # 最多3个服装
+    
+    # 第8层：其他修饰词（补充到目标token数）
+    other_terms = re.findall(r'(?:sweaty|wet|dry|clean|dirty|rough|smooth|soft|hard|tight|loose|big|small|large)', prompt_lower)
+    all_keywords.extend(other_terms[:2])  # 最多2个修饰词
+    
+    # 🚨 修复：去重并逐步构建，确保达到70-75个token
     unique_keywords = []
     seen = set()
-    for keyword in essential_keywords:
+    current_token_count = 0
+    
+    for keyword in all_keywords:
         if keyword not in seen and keyword.strip():
-            unique_keywords.append(keyword)
-            seen.add(keyword)
+            # 测试添加这个关键词后的token数量
+            test_keywords = unique_keywords + [keyword]
+            test_prompt = ', '.join(test_keywords)
+            test_token_count = len(re.findall(token_pattern, test_prompt.lower()))
             
-            # 检查token数量
-            test_prompt = ', '.join(unique_keywords)
-            test_tokens = len(re.findall(token_pattern, test_prompt.lower()))
-            if test_tokens >= max_tokens - 2:  # 留2个token余量
+            # 如果添加后在目标范围内，就添加
+            if test_token_count <= max_tokens:
+                unique_keywords.append(keyword)
+                seen.add(keyword)
+                current_token_count = test_token_count
+            else:
+                # 如果会超过限制，但当前token数还不够，尝试添加更短的词
+                if current_token_count < max_tokens - 5:  # 至少要达到70个token
+                    # 尝试添加一些简短的重要词
+                    short_terms = ['detailed', 'high quality', 'aesthetic', 'perfect', 'beautiful', 'stunning']
+                    for short_term in short_terms:
+                        if short_term not in seen:
+                            test_keywords = unique_keywords + [short_term]
+                            test_prompt = ', '.join(test_keywords)
+                            test_token_count = len(re.findall(token_pattern, test_prompt.lower()))
+                            if test_token_count <= max_tokens:
+                                unique_keywords.append(short_term)
+                                seen.add(short_term)
+                                current_token_count = test_token_count
+                                break
                 break
     
+    # 🚨 修复：如果keyword数量还是太少，从原prompt中补充更多词汇
+    if current_token_count < max_tokens - 10:  # 如果少于65个token
+        # 从原prompt中提取其他有用的词汇
+        original_words = prompt.split()
+        for word in original_words:
+            clean_word = re.sub(r'[^\w]', '', word.lower())
+            if (clean_word not in seen and 
+                clean_word not in ['a', 'an', 'the', 'is', 'are', 'and', 'or', 'but', 'with', 'from', 'to', 'in', 'on', 'at'] and
+                len(clean_word) > 2):
+                
+                test_keywords = unique_keywords + [word]
+                test_prompt = ', '.join(test_keywords)
+                test_token_count = len(re.findall(token_pattern, test_prompt.lower()))
+                
+                if test_token_count <= max_tokens:
+                    unique_keywords.append(word)
+                    seen.add(clean_word)
+                    current_token_count = test_token_count
+                else:
+                    break
+        
     # 生成最终压缩的prompt
     compressed_prompt = ', '.join(unique_keywords)
     final_tokens = len(re.findall(token_pattern, compressed_prompt.lower()))
     
-    print(f"✅ 智能压缩完成: '{compressed_prompt[:100]}...' ({final_tokens} tokens)")
+    print(f"✅ 智能压缩完成: {final_tokens} tokens (目标: {max_tokens})")
+    print(f"   压缩内容: '{compressed_prompt[:100]}{'...' if len(compressed_prompt) > 100 else ''}'")
     return compressed_prompt
