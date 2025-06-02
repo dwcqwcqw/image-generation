@@ -22,6 +22,7 @@ import {
 import ImageGallery from './ImageGallery'
 import LoRASelector from './LoRASelector'
 import { useBaseModel } from '@/contexts/BaseModelContext'
+import { useImageHistory } from '@/contexts/ImageHistoryContext'
 import { generateImageToImage } from '@/services/api'
 import { downloadAllImages as downloadAllImagesUtil } from '@/utils/imageProxy'
 import type { ImageToImageParams, GeneratedImage } from '@/types'
@@ -31,9 +32,7 @@ type GenerationStatus = 'idle' | 'pending' | 'success' | 'error' | 'cancelled'
 export default function ImageToImagePanel() {
   const [status, setStatus] = useState<GenerationStatus>('idle')
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(true)
-  const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([])
   const [currentGenerationImages, setCurrentGenerationImages] = useState<GeneratedImage[]>([])
-  const [historyImages, setHistoryImages] = useState<GeneratedImage[]>([])
   const [sourceImage, setSourceImage] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [currentError, setCurrentError] = useState<string | null>(null)
@@ -43,6 +42,9 @@ export default function ImageToImagePanel() {
   // Use global base model state
   const { baseModel, loraConfig, setLoraConfig } = useBaseModel()
   
+  // Use global image history
+  const { imageToImageHistory, addImageToImageHistory } = useImageHistory()
+
   const [params, setParams] = useState<ImageToImageParams>({
     prompt: '',
     negativePrompt: '', // Will be conditionally shown
@@ -138,10 +140,9 @@ export default function ImageToImagePanel() {
       
       // Move previous current images to history
       if (currentGenerationImages.length > 0) {
-        setHistoryImages(prev => [...currentGenerationImages, ...prev])
+        addImageToImageHistory(currentGenerationImages)
       }
       
-      setGeneratedImages(prev => [...result, ...prev])
       setCurrentGenerationImages(result)
       setStatus('success')
       setGenerationProgress(`Successfully generated ${result.length} image(s)`)
@@ -190,7 +191,7 @@ export default function ImageToImagePanel() {
 
   const downloadAllImages = async () => {
     try {
-      const displayImages = [...currentGenerationImages, ...historyImages]
+      const displayImages = [...currentGenerationImages, ...imageToImageHistory]
       const imagesToDownload = displayImages.map(img => ({ url: img.url, id: img.id }))
       await downloadAllImagesUtil(imagesToDownload)
       toast.success(`Downloaded ${displayImages.length} images`)
@@ -548,10 +549,10 @@ export default function ImageToImagePanel() {
 
         {/* Results Panel */}
         <div className="lg:col-span-2">
-          {(currentGenerationImages.length > 0 || historyImages.length > 0) ? (
+          {(currentGenerationImages.length > 0 || imageToImageHistory.length > 0) ? (
             <ImageGallery 
               currentImages={currentGenerationImages}
-              historyImages={historyImages}
+              historyImages={imageToImageHistory}
               isLoading={status === 'pending'}
               onDownloadAll={downloadAllImages}
             />

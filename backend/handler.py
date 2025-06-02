@@ -769,99 +769,46 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
     print(f"  dimensions: {width}x{height}")
     print(f"  steps: {steps}, cfg_scale: {cfg_scale}")
     
-    # 🎯 SDXL长提示词处理 - 使用Compel支持500+ tokens
+    # 🎯 SDXL长提示词处理 - 动漫模型避免Compel，使用智能压缩
     processed_prompt = prompt
     processed_negative_prompt = negative_prompt
     
     try:
         # 🚨 修复：使用更准确的token估算方法
-        # 考虑标点符号、逗号分隔等因素
         import re
         token_pattern = r'\w+|[^\w\s]'
         estimated_tokens = len(re.findall(token_pattern, prompt.lower()))
         
-        # 🚨 修复：检查是否加载了LoRA，如果有LoRA则使用智能压缩避免黑图
-        global current_lora_config
-        has_lora = bool(current_lora_config and any(v > 0 for v in current_lora_config.values()))
+        # 🚨 修复：动漫模型始终使用智能压缩，避免Compel导致的黑图问题
+        print(f"💡 动漫模型始终使用智能压缩模式 (估计token: {estimated_tokens})")
         
-        if has_lora:
-            print(f"⚠️  检测到LoRA配置 {current_lora_config}，使用智能prompt压缩避免黑图")
-            
-            # 🚨 修复：压缩正向prompt
-            if estimated_tokens > 75:
-                print(f"📝 原始prompt({estimated_tokens} tokens): {processed_prompt[:100]}...")
-                print("🔧 使用智能压缩处理超长prompt...")
-                processed_prompt = compress_prompt_to_77_tokens(processed_prompt, max_tokens=75)
-                print(f"✅ 智能压缩完成，避免黑图问题")
-            else:
-                print("✅ prompt已在75 token限制内，无需压缩")
-            
-            # 🚨 修复：压缩negative prompt
-            negative_tokens = len(re.findall(r'\w+|[^\w\s]', processed_negative_prompt.lower()))
-            if negative_tokens > 75:
-                print(f"🔧 压缩negative prompt: {negative_tokens} tokens -> 75 tokens")
-                processed_negative_prompt = compress_prompt_to_77_tokens(processed_negative_prompt, max_tokens=75)
-                print(f"✅ negative prompt压缩完成")
-            
-            # 使用标准处理方式
-            generation_kwargs = {
-                'prompt': processed_prompt,
-                'negative_prompt': processed_negative_prompt,
-                'height': height,
-                'width': width,
-                'num_inference_steps': steps,
-                'guidance_scale': cfg_scale,
-                'num_images_per_prompt': 1,
-                'output_type': 'pil',
-                'return_dict': True  # 🚨 修复：统一使用return_dict=True
-            }
+        # 压缩正向prompt
+        if estimated_tokens > 75:
+            print(f"📝 压缩长prompt: {estimated_tokens} tokens -> 75 tokens")
+            processed_prompt = compress_prompt_to_77_tokens(processed_prompt, max_tokens=75)
+            print(f"✅ prompt压缩完成")
         else:
-            # 没有LoRA时使用正常处理
-            if estimated_tokens > 50:  # 只有在没有LoRA时才使用Compel
-                print(f"📏 长提示词检测: {estimated_tokens} tokens，启用Compel处理")
-                
-                from compel import Compel
-                # 🚨 修复SDXL Compel参数 - 添加text_encoder_2和pooled支持
-                compel = Compel(
-                    tokenizer=[txt2img_pipe.tokenizer, txt2img_pipe.tokenizer_2],
-                    text_encoder=[txt2img_pipe.text_encoder, txt2img_pipe.text_encoder_2],
-                    requires_pooled=[False, True]  # SDXL需要pooled embeds
-                )
-                
-                # 生成长提示词的embeddings (包括pooled_prompt_embeds)
-                print("🧬 使用Compel生成长提示词embeddings...")
-                conditioning, pooled_conditioning = compel(processed_prompt)
-                negative_conditioning, negative_pooled_conditioning = compel(processed_negative_prompt) if processed_negative_prompt else (None, None)
-                
-                # 使用预处理的embeddings (包括pooled)
-                generation_kwargs = {
-                    "prompt_embeds": conditioning,
-                    "negative_prompt_embeds": negative_conditioning,
-                    "pooled_prompt_embeds": pooled_conditioning,
-                    "negative_pooled_prompt_embeds": negative_pooled_conditioning,
-                    "height": int(height),
-                    "width": int(width),
-                    "num_inference_steps": int(steps),
-                    "guidance_scale": float(cfg_scale),
-                    "num_images_per_prompt": 1,
-                    "output_type": "pil",
-                    "return_dict": True
-                }
-                print("✅ 长提示词embeddings生成成功")
-            else:
-                print(f"📝 普通提示词长度: {estimated_tokens} tokens，使用标准处理")
-                # 标准提示词处理
-                generation_kwargs = {
-                    "prompt": processed_prompt,
-                    "negative_prompt": processed_negative_prompt,
-                    "height": int(height),
-                    "width": int(width),
-                    "num_inference_steps": int(steps),
-                    "guidance_scale": float(cfg_scale),
-                    "num_images_per_prompt": 1,
-                    "output_type": "pil",
-                    "return_dict": True
-                }
+            print("✅ prompt已在75 token限制内，无需压缩")
+        
+        # 压缩negative prompt
+        negative_tokens = len(re.findall(r'\w+|[^\w\s]', processed_negative_prompt.lower()))
+        if negative_tokens > 75:
+            print(f"🔧 压缩negative prompt: {negative_tokens} tokens -> 75 tokens")
+            processed_negative_prompt = compress_prompt_to_77_tokens(processed_negative_prompt, max_tokens=75)
+            print(f"✅ negative prompt压缩完成")
+        
+        # 使用标准处理方式，避免Compel
+        generation_kwargs = {
+            'prompt': processed_prompt,
+            'negative_prompt': processed_negative_prompt,
+            'height': height,
+            'width': width,
+            'num_inference_steps': steps,
+            'guidance_scale': cfg_scale,
+            'num_images_per_prompt': 1,
+            'output_type': 'pil',
+            'return_dict': True
+        }
         
         # 🚨 修复递归调用 - 直接使用generate_images_common统一处理
         print(f"🎨 使用 {base_model} diffusers模型生成图像...")
@@ -871,7 +818,8 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
         return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text-to-image")
         
     except Exception as long_prompt_error:
-        print(f"⚠️  分段长prompt处理失败: {long_prompt_error}")
+        print(f"⚠️  智能压缩处理失败: {long_prompt_error}")
+        import traceback
         print(f"详细错误: {traceback.format_exc()}")
         print("📝 回退到标准处理模式")
         
@@ -886,7 +834,7 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
             "output_type": "pil",
             "return_dict": True
         }
-        print("✅ 回退到标准SDXL处理")
+        print("✅ 回退到标准处理")
         
         return generate_images_common(generation_kwargs, prompt, negative_prompt, width, height, steps, cfg_scale, seed, num_images, base_model, "text-to-image")
 
@@ -1221,10 +1169,21 @@ def image_to_image(params: dict) -> list:
                         image_bytes = image_to_bytes(image)
                         image_url = upload_to_r2(image_bytes, f"{image_id}.jpg")
                         
+                        # 🚨 修复：返回格式与前端期望一致
                         results.append({
-                            'image_id': image_id,
-                            'image_url': image_url,
-                            'seed': current_seed
+                            'id': image_id,  # 前端期望的字段名
+                            'url': image_url,  # 前端期望的字段名
+                            'prompt': prompt,
+                            'negativePrompt': negative_prompt,
+                            'seed': current_seed,
+                            'width': width,
+                            'height': height,
+                            'steps': steps,
+                            'cfgScale': cfg_scale,
+                            'denoisingStrength': denoising_strength,
+                            'createdAt': time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                            'type': 'image-to-image',
+                            'baseModel': base_model
                         })
                         print(f"✅ FLUX图生图 {i+1} 生成成功: {image_url}")
                     else:
@@ -1297,10 +1256,21 @@ def image_to_image(params: dict) -> list:
                         image_bytes = image_to_bytes(image)
                         image_url = upload_to_r2(image_bytes, f"{image_id}.jpg")
                         
+                        # 🚨 修复：返回格式与前端期望一致
                         results.append({
-                            'image_id': image_id,
-                            'image_url': image_url,
-                            'seed': current_seed
+                            'id': image_id,  # 前端期望的字段名
+                            'url': image_url,  # 前端期望的字段名
+                            'prompt': prompt,
+                            'negativePrompt': negative_prompt,
+                            'seed': current_seed,
+                            'width': width,
+                            'height': height,
+                            'steps': steps,
+                            'cfgScale': cfg_scale,
+                            'denoisingStrength': denoising_strength,
+                            'createdAt': time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                            'type': 'image-to-image',
+                            'baseModel': base_model
                         })
                         print(f"✅ Diffusers图生图 {i+1} 生成成功: {image_url}")
                     else:

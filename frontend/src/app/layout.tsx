@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { Toaster } from 'react-hot-toast'
+import { ImageHistoryProvider } from '@/contexts/ImageHistoryContext'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -25,9 +26,11 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full">
       <body className={`${inter.className} h-full`}>
-        <div className="min-h-full">
-          {children}
-        </div>
+        <ImageHistoryProvider>
+          <div className="min-h-full">
+            {children}
+          </div>
+        </ImageHistoryProvider>
         <Toaster 
           position="top-right"
           toastOptions={{
