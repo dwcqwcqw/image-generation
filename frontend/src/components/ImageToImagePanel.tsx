@@ -552,9 +552,9 @@ export default function ImageToImagePanel() {
           {(currentGenerationImages.length > 0 || imageToImageHistory.length > 0) ? (
             <ImageGallery 
               currentImages={currentGenerationImages}
-              historyImages={imageToImageHistory}
               isLoading={status === 'pending'}
               onDownloadAll={downloadAllImages}
+              galleryType="image-to-image"
             />
           ) : (
             <div className="card">

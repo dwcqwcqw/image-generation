@@ -18,6 +18,7 @@ import {
 import ImageGallery from './ImageGallery'
 import LoRASelector from './LoRASelector'
 import { useBaseModel } from '@/contexts/BaseModelContext'
+import { useImageHistory } from '@/contexts/ImageHistoryContext'
 import { generateTextToImage } from '@/services/api'
 import { downloadAllCloudflareImages } from '@/utils/cloudflareImageProxy'
 import type { TextToImageParams, GeneratedImage } from '@/types'
@@ -27,15 +28,16 @@ type GenerationStatus = 'idle' | 'pending' | 'success' | 'error' | 'cancelled'
 export default function TextToImagePanel() {
   const [status, setStatus] = useState<GenerationStatus>('idle')
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(true)
-  const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([])
   const [currentGenerationImages, setCurrentGenerationImages] = useState<GeneratedImage[]>([])
-  const [historyImages, setHistoryImages] = useState<GeneratedImage[]>([])
   const [currentError, setCurrentError] = useState<string | null>(null)
   const [generationProgress, setGenerationProgress] = useState<string>('')
   const abortControllerRef = useRef<AbortController | null>(null)
   
   // Use global base model state
   const { baseModel, loraConfig, setLoraConfig } = useBaseModel()
+  
+  // Use global image history
+  const { textToImageHistory, addTextToImageHistory } = useImageHistory()
   
   const [params, setParams] = useState<TextToImageParams>({
     prompt: '',
@@ -94,10 +96,9 @@ export default function TextToImagePanel() {
       
       // Move previous current images to history
       if (currentGenerationImages.length > 0) {
-        setHistoryImages(prev => [...currentGenerationImages, ...prev])
+        addTextToImageHistory(currentGenerationImages)
       }
       
-      setGeneratedImages(prev => [...result, ...prev])
       setCurrentGenerationImages(result)
       setStatus('success')
       setGenerationProgress(`Successfully generated ${result.length} image(s)`)
@@ -140,7 +141,7 @@ export default function TextToImagePanel() {
 
   const downloadAllImages = async () => {
     try {
-      const displayImages = [...currentGenerationImages, ...historyImages]
+      const displayImages = [...currentGenerationImages]
       const imagesToDownload = displayImages.map(img => ({ url: img.url, id: img.id }))
       await downloadAllCloudflareImages(imagesToDownload)
       toast.success(`Downloaded ${displayImages.length} images`)
@@ -431,14 +432,14 @@ export default function TextToImagePanel() {
             </div>
 
             {/* Download All Button */}
-            {(currentGenerationImages.length > 0 || historyImages.length > 0) && (
+            {currentGenerationImages.length > 0 && (
               <button
                 onClick={downloadAllImages}
                 className="btn-secondary w-full flex items-center justify-center space-x-2"
                 disabled={status === 'pending'}
               >
                 <Download className="w-4 h-4" />
-                <span>Download All ({currentGenerationImages.length + historyImages.length})</span>
+                <span>Download All ({currentGenerationImages.length})</span>
               </button>
             )}
           </div>
@@ -448,10 +449,10 @@ export default function TextToImagePanel() {
         <div className="lg:col-span-2">
           <ImageGallery
             currentImages={currentGenerationImages}
-            historyImages={historyImages}
             isLoading={status === 'pending'}
             title="Generated Images"
             onDownloadAll={downloadAllImages}
+            galleryType="text-to-image"
           />
         </div>
       </div>

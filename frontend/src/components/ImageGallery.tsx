@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Download, Eye, Copy, Trash2, RefreshCw, Archive, Clock } from 'lucide-react'
 import { toast } from 'react-hot-toast'
+import { useImageHistory } from '@/contexts/ImageHistoryContext'
 import type { GeneratedImage } from '@/types'
 import { 
   getCloudflareImageUrl, 
@@ -15,21 +16,25 @@ import {
 
 interface ImageGalleryProps {
   currentImages?: GeneratedImage[]    // 当前任务生成的图片
-  historyImages?: GeneratedImage[]    // 历史生成的图片
   isLoading?: boolean
   title?: string
   onDownloadAll?: () => void         // download all 回调函数
+  galleryType?: 'text-to-image' | 'image-to-image'  // 图片类型
 }
 
 export default function ImageGallery({ 
   currentImages = [], 
-  historyImages = [], 
   isLoading, 
   title = "Generated Images",
-  onDownloadAll 
+  onDownloadAll,
+  galleryType = 'text-to-image'
 }: ImageGalleryProps) {
   const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(null)
   const [showTab, setShowTab] = useState<'current' | 'all'>('current')
+
+  // Use global image history based on gallery type
+  const { textToImageHistory, imageToImageHistory } = useImageHistory()
+  const historyImages = galleryType === 'text-to-image' ? textToImageHistory : imageToImageHistory
 
   const allImages = [...currentImages, ...historyImages]
   const displayImages = showTab === 'current' ? currentImages : allImages

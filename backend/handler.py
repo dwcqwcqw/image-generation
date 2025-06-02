@@ -2013,8 +2013,8 @@ def completely_clear_lora_adapters():
 
 def compress_prompt_to_77_tokens(prompt: str, max_tokens: int = 75) -> str:
     """
-    智能压缩prompt到指定token数量以内
-    转换为纯关键词格式，符合AI绘图最佳实践
+    智能压缩prompt到指定token数量以内 - 修复版本
+    保持在70-75个token之间，避免过度压缩
     """
     import re
     
@@ -2025,54 +2025,121 @@ def compress_prompt_to_77_tokens(prompt: str, max_tokens: int = 75) -> str:
     if current_tokens <= max_tokens:
         return prompt
     
-    print(f"🔧 压缩prompt: {current_tokens} tokens -> {max_tokens} tokens (关键词模式)")
+    print(f"🔧 压缩prompt: {current_tokens} tokens -> {max_tokens} tokens (智能压缩)")
     
-    # 🎯 高优先级关键词提取
+    # 🚨 修复：如果只是稍微超出，优先删除修饰词和连接词
+    if current_tokens <= max_tokens + 10:
+        # 轻度压缩：移除停用词和冗余修饰词
+        stop_words = ['a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'very', 'quite', 'rather', 'really', 'extremely', 'highly', 'deeply', 'fully', 'completely', 'totally', 'absolutely']
+        
+        words = prompt.split()
+        filtered_words = []
+        for word in words:
+            # 保留重要的逗号分隔的短语结构
+            if ',' in word:
+                filtered_words.append(word)
+            else:
+                clean_word = re.sub(r'[^\w]', '', word.lower())
+                if clean_word not in stop_words:
+                    filtered_words.append(word)
+        
+        compressed = ' '.join(filtered_words)
+        compressed_tokens = len(re.findall(token_pattern, compressed.lower()))
+        
+        if compressed_tokens <= max_tokens:
+            print(f"✅ 轻度压缩完成: {compressed_tokens} tokens")
+            return compressed
+    
+    # 🚨 修复：中度压缩 - 保留更多内容
+    if current_tokens <= max_tokens + 20:
+        # 保留核心描述，简化修饰语
+        words = prompt.split()
+        
+        # 优先级分类
+        essential_words = []
+        descriptive_words = []
+        
+        for word in words:
+            word_lower = word.lower().strip(',.')
+            
+            # 质量词汇（最高优先级）
+            if word_lower in ['masterpiece', 'best quality', 'very aesthetic', 'absurdres', 'high quality', 'detailed']:
+                essential_words.append(word)
+            # 主体词汇（高优先级）
+            elif word_lower in ['man', 'male', 'boy', 'handsome', 'muscular', 'athletic', 'fit', 'lean', 'body', 'chest', 'arms', 'legs', 'face', 'hair', 'eyes', 'skin']:
+                essential_words.append(word)
+            # 描述性词汇（中等优先级）
+            else:
+                descriptive_words.append(word)
+        
+        # 重新组合，优先保留essential词汇
+        result_words = essential_words[:]
+        current_token_count = len(re.findall(token_pattern, ' '.join(result_words).lower()))
+        
+        # 逐个添加描述性词汇，直到接近limit
+        for word in descriptive_words:
+            test_text = ' '.join(result_words + [word])
+            test_tokens = len(re.findall(token_pattern, test_text.lower()))
+            
+            if test_tokens <= max_tokens:
+                result_words.append(word)
+                current_token_count = test_tokens
+            else:
+                break
+        
+        compressed = ' '.join(result_words)
+        print(f"✅ 中度压缩完成: {current_token_count} tokens")
+        return compressed
+    
+    # 🚨 修复：重度压缩但保留更多关键词
+    # 分析prompt结构，保留最重要的部分
+    prompt_lower = prompt.lower()
+    
+    # 提取关键词，但保留更多内容
     essential_keywords = []
     
-    # 质量标签（最高优先级）
-    quality_terms = ['masterpiece', 'best quality', 'amazing quality']
-    for term in quality_terms:
-        if term in prompt.lower():
-            essential_keywords.append(term)
+    # 质量标签（保留）
+    quality_terms = re.findall(r'(?:masterpiece|best quality|amazing quality|very aesthetic|absurdres|high quality|detailed|ultra detailed)', prompt_lower)
+    essential_keywords.extend(quality_terms)
     
-    # 主体关键词（高优先级）
-    subject_words = ['man', 'boy', 'male', 'muscular', 'lean', 'handsome', 'athletic', 'fit']
-    anatomy_words = ['torso', 'chest', 'penis', 'erect', 'flaccid', 'body', 'muscles']
-    pose_words = ['reclining', 'lying', 'sitting', 'relaxed', 'confident']
-    environment_words = ['bed', 'sheets', 'satin', 'luxurious']
-    style_words = ['soft', 'lighting', 'warm', 'cinematic', 'sensual', 'intimate']
+    # 主体描述（保留核心）
+    subject_matches = re.findall(r'(?:handsome\s+)?(?:muscular\s+)?(?:athletic\s+)?(?:man|male|boy)', prompt_lower)
+    if subject_matches:
+        essential_keywords.extend(subject_matches[:2])  # 保留前2个主体描述
     
-    # 🚨 从原始prompt中提取存在的关键词（避免重复）
-    words_in_prompt = prompt.lower().split()
-    for word in words_in_prompt:
-        word_clean = re.sub(r'[^\w]', '', word)
-        
-        # 检查是否为重要关键词
-        if word_clean in subject_words + anatomy_words + pose_words + environment_words + style_words:
-            if word_clean not in essential_keywords:
-                essential_keywords.append(word_clean)
+    # 身体部位（选择性保留）
+    body_terms = re.findall(r'(?:bare\s+chest|chest|torso|abs|muscles|body|arms|legs)', prompt_lower)
+    essential_keywords.extend(body_terms[:3])  # 保留前3个身体词汇
     
-    # 🎯 严格控制token数量
-    final_keywords = []
-    token_count = 0
+    # 姿势和场景（选择性保留）  
+    pose_terms = re.findall(r'(?:sitting|lying|standing|relaxed|confident|smiling|looking|raised|behind)', prompt_lower)
+    essential_keywords.extend(pose_terms[:4])  # 保留前4个姿势词汇
     
+    # 环境和物品（选择性保留）
+    env_terms = re.findall(r'(?:couch|bed|chair|table|room|background|clothing|jeans|boots)', prompt_lower)
+    essential_keywords.extend(env_terms[:3])  # 保留前3个环境词汇
+    
+    # 外观特征（选择性保留）
+    appearance_terms = re.findall(r'(?:tan\s+skin|short\s+beard|tattoos|piercings|hair|sweaty)', prompt_lower)
+    essential_keywords.extend(appearance_terms[:4])  # 保留前4个外观特征
+    
+    # 去重并保持合理数量
+    unique_keywords = []
+    seen = set()
     for keyword in essential_keywords:
-        # 计算添加这个关键词的token成本
-        if keyword == essential_keywords[0]:
-            keyword_cost = len(re.findall(token_pattern, keyword))  # 第一个词不需要逗号
-        else:
-            keyword_cost = len(re.findall(token_pattern, f", {keyword}"))  # 后续词包含逗号
-        
-        if token_count + keyword_cost <= max_tokens:
-            final_keywords.append(keyword)
-            token_count += keyword_cost
-        else:
-            break  # 达到limit就停止
+        if keyword not in seen and keyword.strip():
+            unique_keywords.append(keyword)
+            seen.add(keyword)
+            
+            # 检查token数量
+            test_prompt = ', '.join(unique_keywords)
+            test_tokens = len(re.findall(token_pattern, test_prompt.lower()))
+            if test_tokens >= max_tokens - 2:  # 留2个token余量
+                break
     
-    # 生成纯关键词格式
-    compressed_prompt = ', '.join(final_keywords)
-    final_tokens = len(re.findall(token_pattern, compressed_prompt))
+    # 生成最终压缩的prompt
+    compressed_prompt = ', '.join(unique_keywords)
+    final_tokens = len(re.findall(token_pattern, compressed_prompt.lower()))
     
-    print(f"✅ 关键词压缩完成: '{compressed_prompt}' ({final_tokens} tokens)")
+    print(f"✅ 智能压缩完成: '{compressed_prompt[:100]}...' ({final_tokens} tokens)")
     return compressed_prompt
