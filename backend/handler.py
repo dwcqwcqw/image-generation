@@ -968,32 +968,10 @@ def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, hei
     
     # 🚨 修复：模型切换完成后，再处理LoRA配置
     # 检查是否需要更新LoRA配置（包括首次加载）
-    if lora_config:
-        print(f"🎨 更新LoRA配置: {lora_config}")
-        
-        # 检查当前模型类型
-        if current_base_model:
-            model_config = BASE_MODELS.get(current_base_model, {})
-            model_type = model_config.get("model_type", "unknown")
-            print(f"🎯 当前模型类型: {model_type}")
-            
-            # 清理现有LoRA权重
-            if txt2img_pipe:
-                try:
-                    print("🧹 Clearing existing LoRA weights...")
-                    completely_clear_lora_adapters()
-                except Exception as clear_error:
-                    print(f"⚠️  清理LoRA权重时出错: {clear_error}")
-            
-            # 尝试加载新的LoRA配置
-            try:
-                if load_multiple_loras(lora_config):
-                    print("✅ LoRA配置更新成功")
-                else:
-                    print("⚠️  LoRA配置更新失败，使用基础模型")
-            except Exception as lora_load_error:
-                print(f"⚠️  LoRA加载出错: {lora_load_error}")
-                print("ℹ️  继续使用基础模型生成")
+    if lora_config and isinstance(lora_config, dict) and len(lora_config) > 0:
+        lora_id = next(iter(lora_config.keys()))
+        print(f"🎨 切换LoRA: {lora_id}")
+        switch_single_lora(lora_id)
     else:
         print("ℹ️  没有LoRA配置，使用基础模型生成")
     
@@ -1094,9 +1072,10 @@ def image_to_image(params: dict) -> list:
     # 🚨 模型加载已在函数开头处理，这里移除重复检查
     
     # 检查是否需要更新LoRA配置
-    if lora_config and lora_config != current_lora_config:
-        print(f"🎨 图生图更新LoRA配置: {lora_config}")
-        load_multiple_loras(lora_config)
+    if lora_config and isinstance(lora_config, dict) and len(lora_config) > 0:
+        lora_id = next(iter(lora_config.keys()))
+        print(f"🎨 图生图切换LoRA: {lora_id}")
+        switch_single_lora(lora_id)
     
     # 处理输入图像
     try:
@@ -1396,198 +1375,6 @@ def switch_single_lora(lora_id: str) -> bool:
                 pass
         raise RuntimeError(f"LoRA切换失败: {str(e)}")
 
-def load_multiple_loras(lora_config: dict) -> bool:
-    """加载多个LoRA模型到管道中 - 修复适配器名称冲突问题"""
-    global txt2img_pipe, img2img_pipe, current_base_model, current_lora_config
-    
-    if txt2img_pipe is None:
-        print("❌ No pipeline loaded, cannot load LoRAs")
-        return False
-    
-    if not lora_config:
-        print("ℹ️  No LoRA configuration provided")
-        return True
-    
-    # 获取当前模型类型
-    current_model_type = BASE_MODELS.get(current_base_model, {}).get("model_type", "unknown")
-    print(f"🎯 当前模型类型: {current_model_type}")
-    
-    try:
-        # 🚨 修复：使用更彻底的清理方法
-        completely_clear_lora_adapters()
-        
-        # 动态搜索并过滤兼容的LoRA
-        compatible_loras = {}
-        for lora_id, weight in lora_config.items():
-            if weight <= 0:
-                continue
-            
-            # 动态搜索LoRA文件
-            lora_path = find_lora_file(lora_id, current_base_model)
-            if not lora_path:
-                print(f"⚠️  LoRA文件未找到: {lora_id}")
-                continue
-                
-            compatible_loras[lora_id] = {
-                "path": lora_path,
-                "weight": weight
-            }
-        
-        if not compatible_loras:
-            print("ℹ️  没有找到兼容的LoRA模型")
-            return True
-        
-        print(f"🎨 Loading {len(compatible_loras)} compatible LoRA(s): {list(compatible_loras.keys())}")
-        
-        # 加载兼容的LoRA
-        lora_paths = []
-        lora_weights = []
-        
-        for lora_id, lora_data in compatible_loras.items():
-            lora_paths.append(lora_data["path"])
-            lora_weights.append(lora_data["weight"])
-            print(f"  📦 {lora_id}: {lora_data['path']} (weight: {lora_data['weight']})")
-        
-        if current_model_type == "flux":
-            # FLUX模型使用旧版API
-            for i, (lora_path, weight) in enumerate(zip(lora_paths, lora_weights)):
-                print(f"🔧 加载FLUX LoRA {i+1}/{len(lora_paths)}: {lora_path}")
-                
-                # 卸载之前的LoRA（如果有）
-                if hasattr(txt2img_pipe, 'unload_lora_weights'):
-                    txt2img_pipe.unload_lora_weights()
-                
-                # 加载新的LoRA
-                txt2img_pipe.load_lora_weights(lora_path)
-                
-                # FLUX的权重通过cross_attention_kwargs设置
-                if hasattr(txt2img_pipe, 'set_lora_scale'):
-                    txt2img_pipe.set_lora_scale(weight)
-                    print(f"✅ FLUX LoRA权重设置: {weight}")
-                
-        elif current_model_type == "diffusers":
-            # 标准diffusers模型使用load_lora_weights和set_adapters
-            if len(compatible_loras) == 1:
-                # 单个LoRA
-                lora_path = lora_paths[0]
-                weight = lora_weights[0]
-                lora_id = list(compatible_loras.keys())[0]
-                
-                # 🚨 修复：使用更强的唯一性保证
-                import time
-                import random
-                import uuid
-                import threading
-                import os
-                
-                # 创建基于多个因素的超强唯一标识符
-                base_timestamp = int(time.time() * 1000000)  # 微秒级时间戳
-                thread_id = threading.get_ident()
-                process_id = os.getpid()
-                unique_uuid = str(uuid.uuid4()).replace('-', '')[:16]  # 16位清洁UUID
-                random_suffix = random.randint(100000, 999999)
-                
-                unique_adapter_name = f"{lora_id}_{base_timestamp}_{thread_id}_{process_id}_{unique_uuid}_{random_suffix}"
-                print(f"🔧 使用超强唯一适配器名称: {lora_id} -> {unique_adapter_name}")
-                
-                # 确保名称真正唯一
-                retry_count = 0
-                while (hasattr(txt2img_pipe.unet, '_lora_adapters') and 
-                       unique_adapter_name in txt2img_pipe.unet._lora_adapters and 
-                       retry_count < 3):
-                    retry_count += 1
-                    random_suffix = random.randint(100000, 999999)
-                    unique_adapter_name = f"{lora_id}_{base_timestamp}_{thread_id}_{process_id}_{unique_uuid}_{random_suffix}_retry{retry_count}"
-                    print(f"⚠️  名称冲突，重试 {retry_count}: {unique_adapter_name}")
-                
-                if retry_count >= 3:
-                    # 强制清理后重新生成
-                    completely_clear_lora_adapters()
-                    unique_adapter_name = f"{lora_id}_{base_timestamp}_{thread_id}_{process_id}_{unique_uuid}_{random_suffix}_final"
-                
-                txt2img_pipe.load_lora_weights(lora_path, adapter_name=unique_adapter_name)
-                
-                # 使用新的set_adapters方法设置权重，避免cross_attention_kwargs错误
-                txt2img_pipe.set_adapters([unique_adapter_name], adapter_weights=[weight])
-                
-                # 同步到img2img管道
-                if img2img_pipe:
-                    img2img_pipe.load_lora_weights(lora_path, adapter_name=unique_adapter_name)
-                    img2img_pipe.set_adapters([unique_adapter_name], adapter_weights=[weight])
-                    
-                print(f"✅ 成功设置LoRA权重: {lora_id} = {weight}")
-                
-            else:
-                # 多个LoRA
-                adapter_names = []
-                adapter_weights = lora_weights
-                
-                print(f"🔧 加载多个LoRA: {list(compatible_loras.keys())}")
-                
-                # 逐个加载LoRA，使用超强唯一适配器名称
-                import time
-                import random
-                import uuid
-                import threading
-                import os
-                
-                # 创建全局唯一的基础标识符
-                base_timestamp = int(time.time() * 1000000)  # 微秒级时间戳
-                thread_id = threading.get_ident()
-                process_id = os.getpid()
-                
-                for i, (lora_id, lora_data) in enumerate(compatible_loras.items()):
-                    unique_uuid = str(uuid.uuid4()).replace('-', '')[:16]
-                    random_suffix = random.randint(100000, 999999)
-                    unique_adapter_name = f"{lora_id}_{base_timestamp}_{i}_{thread_id}_{process_id}_{unique_uuid}_{random_suffix}"
-                    
-                    # 确保名称真正唯一
-                    retry_count = 0
-                    while (hasattr(txt2img_pipe.unet, '_lora_adapters') and 
-                           unique_adapter_name in txt2img_pipe.unet._lora_adapters and 
-                           retry_count < 3):
-                        retry_count += 1
-                        random_suffix = random.randint(100000, 999999)
-                        unique_adapter_name = f"{lora_id}_{base_timestamp}_{i}_{thread_id}_{process_id}_{unique_uuid}_{random_suffix}_retry{retry_count}"
-                        print(f"⚠️  多LoRA名称冲突，重试 {retry_count}: {unique_adapter_name}")
-                    
-                    if retry_count >= 3:
-                        # 强制清理后重新生成
-                        completely_clear_lora_adapters()
-                        unique_adapter_name = f"{lora_id}_{base_timestamp}_{i}_{thread_id}_{process_id}_{unique_uuid}_{random_suffix}_final"
-                    
-                    adapter_names.append(unique_adapter_name)
-                    print(f"  🔧 加载LoRA {i+1}/{len(compatible_loras)}: {lora_id} -> {unique_adapter_name}")
-                    
-                    txt2img_pipe.load_lora_weights(lora_data["path"], adapter_name=unique_adapter_name)
-                    if img2img_pipe:
-                        img2img_pipe.load_lora_weights(lora_data["path"], adapter_name=unique_adapter_name)
-                
-                # 一次性设置所有权重
-                txt2img_pipe.set_adapters(adapter_names, adapter_weights=adapter_weights)
-                if img2img_pipe:
-                    img2img_pipe.set_adapters(adapter_names, adapter_weights=adapter_weights)
-                    
-                print(f"✅ 成功设置多个LoRA权重: {dict(zip(list(compatible_loras.keys()), adapter_weights))}")
-        
-        # 更新当前配置
-        current_lora_config.update(lora_config)
-        print(f"✅ Successfully loaded {len(compatible_loras)} LoRA(s)")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Error loading multiple LoRAs: {e}")
-        print(f"详细错误: {traceback.format_exc()}")
-        
-        # 🚨 修复：LoRA加载失败后的清理
-        try:
-            completely_clear_lora_adapters()
-            print("🧹 LoRA失败后状态已清理")
-        except Exception as cleanup_error:
-            print(f"⚠️  清理失败后状态时出错: {cleanup_error}")
-        
-        return False
-
 def switch_base_model(base_model_type: str) -> bool:
     """切换基础模型"""
     global current_base_model
@@ -1691,7 +1478,7 @@ def handler(job):
             
             # 兼容单LoRA切换
             single_lora_config = {lora_id: 1.0}
-            success = load_multiple_loras(single_lora_config)
+            success = switch_single_lora(lora_id)
             
             if success:
                 return {
@@ -1716,7 +1503,7 @@ def handler(job):
                     'error': 'lora_config is required'
                 }
             
-            success = load_multiple_loras(lora_config)
+            success = switch_single_lora(next(iter(lora_config.keys())))
             
             if success:
                 return {
@@ -1769,10 +1556,8 @@ def handler(job):
             }
             
         elif task_type == 'image-to-image':
-            # 图像转图像生成 - 修复参数提取
+            # 图像转图像生成 - 支持单LoRA
             print("📝 Processing image-to-image request...")
-            
-            # 直接从job_input提取参数，而不是嵌套的params对象
             params = {
                 'prompt': job_input.get('prompt', ''),
                 'negativePrompt': job_input.get('negativePrompt', ''),
@@ -1787,14 +1572,11 @@ def handler(job):
                 'baseModel': job_input.get('baseModel', 'realistic'),
                 'lora_config': job_input.get('lora_config', {})
             }
-            
             requested_lora_config = params.get('lora_config', current_lora_config)
-            
-            # 检查是否需要更新LoRA配置
-            if requested_lora_config != current_lora_config:
-                print(f"Auto-loading LoRA config for generation: {requested_lora_config}")
-                load_multiple_loras(requested_lora_config)
-            
+            if requested_lora_config and isinstance(requested_lora_config, dict) and len(requested_lora_config) > 0:
+                lora_id = next(iter(requested_lora_config.keys()))
+                print(f"Auto-loading LoRA config for generation: {lora_id}")
+                switch_single_lora(lora_id)
             results = image_to_image(params)
             return {
                 'success': True,
@@ -2044,189 +1826,24 @@ def completely_clear_lora_adapters():
 
 def compress_prompt_to_77_tokens(prompt: str, max_tokens: int = 75) -> str:
     """
-    智能压缩prompt到指定token数量以内 - 修复版本
-    保持在70-75个token之间，避免过度压缩
+    智能压缩prompt到指定token数量以内 - 使用CLIPTokenizer真实计数
     """
     import re
-    
-    # 计算当前token数量
+    # 初始化tokenizer（只初始化一次）
+    global _clip_tokenizer
+    if '_clip_tokenizer' not in globals() or _clip_tokenizer is None:
+        _clip_tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
+    tokenizer = _clip_tokenizer
+    # 先粗略分词
     token_pattern = r'\w+|[^\w\s]'
-    current_tokens = len(re.findall(token_pattern, prompt.lower()))
-    
-    if current_tokens <= max_tokens:
-        return prompt
-    
-    print(f"🔧 压缩prompt: {current_tokens} tokens -> {max_tokens} tokens (智能压缩)")
-    
-    # 🚨 修复：如果只是稍微超出，优先删除修饰词和连接词
-    if current_tokens <= max_tokens + 10:
-        # 轻度压缩：移除停用词和冗余修饰词
-        stop_words = ['a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'very', 'quite', 'rather', 'really', 'extremely', 'highly', 'deeply', 'fully', 'completely', 'totally', 'absolutely']
-        
-        words = prompt.split()
-        filtered_words = []
-        for word in words:
-            # 保留重要的逗号分隔的短语结构
-            if ',' in word:
-                filtered_words.append(word)
-            else:
-                clean_word = re.sub(r'[^\w]', '', word.lower())
-                if clean_word not in stop_words:
-                    filtered_words.append(word)
-        
-        compressed = ' '.join(filtered_words)
-        compressed_tokens = len(re.findall(token_pattern, compressed.lower()))
-        
-        if compressed_tokens <= max_tokens:
-            print(f"✅ 轻度压缩完成: {compressed_tokens} tokens")
-            return compressed
-    
-    # 🚨 修复：中度压缩 - 保留更多内容
-    if current_tokens <= max_tokens + 20:
-        # 保留核心描述，简化修饰语
-        words = prompt.split()
-        
-        # 优先级分类
-        essential_words = []
-        descriptive_words = []
-        
-        for word in words:
-            word_lower = word.lower().strip(',.')
-            
-            # 质量词汇（最高优先级）
-            if word_lower in ['masterpiece', 'best quality', 'very aesthetic', 'absurdres', 'high quality', 'detailed']:
-                essential_words.append(word)
-            # 主体词汇（高优先级）
-            elif word_lower in ['man', 'male', 'boy', 'handsome', 'muscular', 'athletic', 'fit', 'lean', 'body', 'chest', 'arms', 'legs', 'face', 'hair', 'eyes', 'skin']:
-                essential_words.append(word)
-            # 描述性词汇（中等优先级）
-            else:
-                descriptive_words.append(word)
-        
-        # 重新组合，优先保留essential词汇
-        result_words = essential_words[:]
-        current_token_count = len(re.findall(token_pattern, ' '.join(result_words).lower()))
-        
-        # 逐个添加描述性词汇，直到接近limit
-        for word in descriptive_words:
-            test_text = ' '.join(result_words + [word])
-            test_tokens = len(re.findall(token_pattern, test_text.lower()))
-            
-            if test_tokens <= max_tokens:
-                result_words.append(word)
-                current_token_count = test_tokens
-            else:
-                break
-        
-        compressed = ' '.join(result_words)
-        print(f"✅ 中度压缩完成: {current_token_count} tokens")
-        return compressed
-    
-    # 🚨 修复：重度压缩但保留更多关键词，目标70-75个token
-    # 分析prompt结构，保留最重要的部分
-    prompt_lower = prompt.lower()
-    
-    # 🚨 修复：重新设计压缩策略，避免过度压缩
-    all_keywords = []
-    
-    # 第1层：质量标签（必须保留）
-    quality_terms = re.findall(r'(?:masterpiece|best quality|amazing quality|very aesthetic|absurdres|high quality|detailed|ultra detailed|perfect)', prompt_lower)
-    all_keywords.extend(quality_terms[:3])  # 最多3个质量词
-    
-    # 第2层：主体描述（核心保留）
-    subject_patterns = [
-        r'(?:handsome\s+)?(?:muscular\s+)?(?:athletic\s+)?(?:young\s+)?(?:man|male|boy|guy)',
-        r'(?:bare\s+)?(?:chest|torso|body)',
-        r'(?:strong\s+)?(?:arms|shoulders|muscles)',
-        r'(?:confident|relaxed|smiling|looking)',
-    ]
-    for pattern in subject_patterns:
-        matches = re.findall(pattern, prompt_lower)
-        all_keywords.extend(matches[:2])  # 每类最多2个
-    
-    # 第3层：身体特征（适当保留）
-    body_terms = re.findall(r'(?:abs|six-pack|biceps|pecs|triceps|lats|delts|quads|calves|neck|jaw|chin|face)', prompt_lower)
-    all_keywords.extend(body_terms[:4])  # 最多4个身体特征
-    
-    # 第4层：外观特征（选择性保留）
-    appearance_terms = re.findall(r'(?:tan\s+skin|fair\s+skin|dark\s+skin|short\s+hair|long\s+hair|beard|mustache|stubble|tattoos|piercings|jewelry)', prompt_lower)
-    all_keywords.extend(appearance_terms[:3])  # 最多3个外观特征
-    
-    # 第5层：姿势和表情（适当保留）
-    pose_terms = re.findall(r'(?:sitting|lying|standing|leaning|raised|behind|crossed|flexing|posing|stretching)', prompt_lower)
-    all_keywords.extend(pose_terms[:4])  # 最多4个姿势
-    
-    # 第6层：环境和物品（选择性保留）
-    env_terms = re.findall(r'(?:couch|sofa|bed|chair|table|desk|room|bedroom|living\s+room|kitchen|bathroom|gym|outdoors|beach|park)', prompt_lower)
-    all_keywords.extend(env_terms[:3])  # 最多3个环境
-    
-    # 第7层：服装和配饰（适当保留）
-    clothing_terms = re.findall(r'(?:shirtless|topless|underwear|briefs|boxers|jeans|pants|shorts|boots|shoes|watch|necklace|bracelet)', prompt_lower)
-    all_keywords.extend(clothing_terms[:3])  # 最多3个服装
-    
-    # 第8层：其他修饰词（补充到目标token数）
-    other_terms = re.findall(r'(?:sweaty|wet|dry|clean|dirty|rough|smooth|soft|hard|tight|loose|big|small|large)', prompt_lower)
-    all_keywords.extend(other_terms[:2])  # 最多2个修饰词
-    
-    # 🚨 修复：去重并逐步构建，确保达到70-75个token
-    unique_keywords = []
-    seen = set()
-    current_token_count = 0
-    
-    for keyword in all_keywords:
-        if keyword not in seen and keyword.strip():
-            # 测试添加这个关键词后的token数量
-            test_keywords = unique_keywords + [keyword]
-            test_prompt = ', '.join(test_keywords)
-            test_token_count = len(re.findall(token_pattern, test_prompt.lower()))
-            
-            # 如果添加后在目标范围内，就添加
-            if test_token_count <= max_tokens:
-                unique_keywords.append(keyword)
-                seen.add(keyword)
-                current_token_count = test_token_count
-            else:
-                # 如果会超过限制，但当前token数还不够，尝试添加更短的词
-                if current_token_count < max_tokens - 5:  # 至少要达到70个token
-                    # 尝试添加一些简短的重要词
-                    short_terms = ['detailed', 'high quality', 'aesthetic', 'perfect', 'beautiful', 'stunning']
-                    for short_term in short_terms:
-                        if short_term not in seen:
-                            test_keywords = unique_keywords + [short_term]
-                            test_prompt = ', '.join(test_keywords)
-                            test_token_count = len(re.findall(token_pattern, test_prompt.lower()))
-                            if test_token_count <= max_tokens:
-                                unique_keywords.append(short_term)
-                                seen.add(short_term)
-                                current_token_count = test_token_count
-                                break
-                break
-    
-    # 🚨 修复：如果keyword数量还是太少，从原prompt中补充更多词汇
-    if current_token_count < max_tokens - 10:  # 如果少于65个token
-        # 从原prompt中提取其他有用的词汇
-        original_words = prompt.split()
-        for word in original_words:
-            clean_word = re.sub(r'[^\w]', '', word.lower())
-            if (clean_word not in seen and 
-                clean_word not in ['a', 'an', 'the', 'is', 'are', 'and', 'or', 'but', 'with', 'from', 'to', 'in', 'on', 'at'] and
-                len(clean_word) > 2):
-                
-                test_keywords = unique_keywords + [word]
-                test_prompt = ', '.join(test_keywords)
-                test_token_count = len(re.findall(token_pattern, test_prompt.lower()))
-                
-                if test_token_count <= max_tokens:
-                    unique_keywords.append(word)
-                    seen.add(clean_word)
-                    current_token_count = test_token_count
-                else:
-                    break
-        
-    # 生成最终压缩的prompt
-    compressed_prompt = ', '.join(unique_keywords)
-    final_tokens = len(re.findall(token_pattern, compressed_prompt.lower()))
-    
-    print(f"✅ 智能压缩完成: {final_tokens} tokens (目标: {max_tokens})")
-    print(f"   压缩内容: '{compressed_prompt[:100]}{'...' if len(compressed_prompt) > 100 else ''}'")
-    return compressed_prompt
+    words = prompt.split()
+    # 循环截断，直到tokenizer计数<=max_tokens
+    for end in range(len(words), 0, -1):
+        candidate = ' '.join(words[:end])
+        token_count = len(tokenizer(candidate, add_special_tokens=False)["input_ids"])
+        if token_count <= max_tokens:
+            print(f"✅ 智能压缩完成: {token_count} tokens (目标: {max_tokens})")
+            print(f"   压缩内容: '{candidate[:100]}{'...' if len(candidate) > 100 else ''}'")
+            return candidate
+    # 如果全部都超，返回最短
+    return ' '.join(words[:1])
