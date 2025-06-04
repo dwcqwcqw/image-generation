@@ -947,7 +947,6 @@ def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, hei
     if base_model != current_base_model:
         print(f"🎯 请求模型: {base_model}, 当前加载模型: {current_base_model}")
         print(f"🔄 需要切换模型: {current_base_model} -> {base_model}")
-        
         try:
             load_specific_model(base_model)
             print(f"✅ 成功切换到 {base_model} 模型")
@@ -957,17 +956,7 @@ def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, hei
                 'success': False,
                 'error': f'Failed to switch to {base_model} model: {str(switch_error)}'
             }
-    
-    # 🚨 确保有模型加载
-    if not txt2img_pipe:
-        print("❌ 没有加载任何模型")
-        return {
-            'success': False,
-            'error': 'No model loaded. Please switch to a valid model first.'
-        }
-    
-    # 🚨 修复：模型切换完成后，再处理LoRA配置
-    # 检查是否需要更新LoRA配置（包括首次加载）
+    # 再切换LoRA
     if lora_config and isinstance(lora_config, dict) and len(lora_config) > 0:
         lora_id = next(iter(lora_config.keys()))
         print(f"🎨 切换LoRA: {lora_id}")
@@ -1572,6 +1561,12 @@ def handler(job):
                 'baseModel': job_input.get('baseModel', 'realistic'),
                 'lora_config': job_input.get('lora_config', {})
             }
+            # 先切换模型
+            base_model = params.get('baseModel', 'realistic')
+            if img2img_pipe is None or current_base_model != base_model:
+                print(f"📝 Handler自动切换模型: {current_base_model} -> {base_model}")
+                load_specific_model(base_model)
+            # 再切换LoRA
             requested_lora_config = params.get('lora_config', current_lora_config)
             if requested_lora_config and isinstance(requested_lora_config, dict) and len(requested_lora_config) > 0:
                 lora_id = next(iter(requested_lora_config.keys()))
