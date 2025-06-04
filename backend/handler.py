@@ -739,10 +739,6 @@ def generate_diffusers_images(prompt: str, negative_prompt: str, width: int, hei
         steps = 30
     
     # 🚨 修复：添加WAI-NSFW-illustrious-SDXL推荐的质量标签
-    if not prompt.startswith("masterpiece") and "masterpiece" not in prompt.lower():
-        prompt = "masterpiece, best quality, amazing quality, " + prompt
-        print(f"✨ 添加WAI-NSFW-illustrious-SDXL推荐质量标签")
-    
     # 🚨 修复：添加推荐的负面提示
     recommended_negative = "bad quality, worst quality, worst detail, sketch, censor"
     # 🚨 修复：防止重复添加推荐negative prompt
