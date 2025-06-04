@@ -1338,37 +1338,36 @@ def get_loras_by_base_model() -> dict:
     }
 
 def switch_single_lora(lora_id: str) -> bool:
-    """切换单个LoRA模型（使用动态搜索）"""
-    global txt2img_pipe, img2img_pipe, current_lora_config, current_selected_lora
-    
+    """切换到单个LoRA（彻底无多LoRA/adapter_name残留，动漫模型兼容）"""
+    global txt2img_pipe, img2img_pipe, current_lora_config, current_selected_lora, current_base_model
+
     if txt2img_pipe is None:
         raise ValueError("No pipeline loaded, cannot switch LoRA")
-    
+
     # 动态搜索LoRA文件
     lora_path = find_lora_file(lora_id, current_base_model)
-    
     if not lora_path:
         raise ValueError(f"LoRA文件未找到: {lora_id}")
-    
+
     # 如果已经是当前LoRA，直接返回
     if lora_id == current_selected_lora:
         print(f"LoRA {lora_id} 已经加载 - 跳过切换")
         return True
-    
+
     try:
         print(f"🔄 切换LoRA到: {lora_id}")
         print(f"📁 文件路径: {lora_path}")
-        
-        # 卸载当前LoRA
+        # 卸载当前LoRA（如有）
         if hasattr(txt2img_pipe, 'unload_lora_weights'):
-            txt2img_pipe.unload_lora_weights()
-            print("🧹 已卸载之前的LoRA")
-        
-        # 加载新的LoRA
+            try:
+                txt2img_pipe.unload_lora_weights()
+                print("🧹 已卸载之前的LoRA (txt2img)")
+            except Exception as e:
+                print(f"⚠️  卸载txt2img LoRA时出错: {e}")
+        # 加载新LoRA
         txt2img_pipe.load_lora_weights(lora_path)
-        print("✅ 新LoRA加载成功")
-        
-        # 同步到img2img管道（如果存在）
+        print("✅ 新LoRA加载成功 (txt2img)")
+        # img2img管道同步
         if img2img_pipe and hasattr(img2img_pipe, 'load_lora_weights'):
             try:
                 if hasattr(img2img_pipe, 'unload_lora_weights'):
@@ -1377,27 +1376,24 @@ def switch_single_lora(lora_id: str) -> bool:
                 print("✅ img2img管道LoRA同步成功")
             except Exception as e:
                 print(f"⚠️  img2img管道LoRA同步失败: {e}")
-        
         # 更新当前LoRA配置
         current_lora_config = {lora_id: 1.0}
         current_selected_lora = lora_id
-        
         print(f"🎉 成功切换到LoRA: {lora_id}")
         return True
-        
     except Exception as e:
         print(f"❌ LoRA切换失败: {str(e)}")
-        # 尝试恢复到之前的LoRA
-        if current_selected_lora and current_selected_lora != lora_id:
+        # 强制清理，防止后续死锁
+        if hasattr(txt2img_pipe, 'unload_lora_weights'):
             try:
-                previous_lora_path = find_lora_file(current_selected_lora, current_base_model)
-                if previous_lora_path:
-                    if hasattr(txt2img_pipe, 'unload_lora_weights'):
-                        txt2img_pipe.unload_lora_weights()
-                    txt2img_pipe.load_lora_weights(previous_lora_path)
-                    print(f"🔄 已恢复到之前的LoRA: {current_selected_lora}")
-            except Exception as recovery_error:
-                print(f"❌ LoRA恢复失败: {recovery_error}")
+                txt2img_pipe.unload_lora_weights()
+            except:
+                pass
+        if img2img_pipe and hasattr(img2img_pipe, 'unload_lora_weights'):
+            try:
+                img2img_pipe.unload_lora_weights()
+            except:
+                pass
         raise RuntimeError(f"LoRA切换失败: {str(e)}")
 
 def load_multiple_loras(lora_config: dict) -> bool:
