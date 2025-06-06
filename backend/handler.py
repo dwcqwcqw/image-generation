@@ -50,6 +50,18 @@ except ImportError:
     COMPEL_AVAILABLE = False
     print("⚠️  Compel library not available - long prompt support limited")
 
+# 导入换脸集成模块
+try:
+    from face_swap_integration import process_face_swap_pipeline, is_face_swap_available
+    FACE_SWAP_AVAILABLE = is_face_swap_available()
+    if FACE_SWAP_AVAILABLE:
+        print("✓ Face swap integration loaded successfully")
+    else:
+        print("⚠️ Face swap models not available - face swap will be disabled")
+except ImportError as e:
+    FACE_SWAP_AVAILABLE = False
+    print(f"⚠️ Face swap integration not available: {e}")
+
 # 添加启动日志
 print("=== Starting AI Image Generation Backend ===")
 print(f"Python version: {sys.version}")
@@ -1010,27 +1022,37 @@ def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, hei
         }
 
 def image_to_image(params: dict) -> list:
-    """图生图生成 - 修复版本，支持FLUX和SDXL模型"""
-    global img2img_pipe, current_base_model
+    """
+    图生图生成 - 新版本，支持换脸功能
     
-    # 🚨 修复：检查并自动加载模型
+    对于真人模型：
+    1. 先进行文生图
+    2. 分析用户上传图片的人脸
+    3. 将用户人脸置换到生成图片中
+    4. 如果换脸失败，返回原始生成图片
+    
+    对于动漫模型：
+    保持原有的图生图逻辑
+    """
+    global txt2img_pipe, img2img_pipe, current_base_model
+    
+    # 检查并自动加载模型
     base_model = params.get('baseModel', 'realistic')
     
-    # 如果没有加载任何模型，或者请求的模型与当前模型不匹配
-    if img2img_pipe is None or current_base_model != base_model:
-        print(f"📝 图生图模型未加载或需要切换，当前: {current_base_model} -> 请求: {base_model}")
+    if txt2img_pipe is None or current_base_model != base_model:
+        print(f"📝 模型未加载或需要切换，当前: {current_base_model} -> 请求: {base_model}")
         try:
             load_specific_model(base_model)
-            print(f"✅ 成功加载图生图模型: {base_model}")
+            print(f"✅ 成功加载模型: {base_model}")
         except Exception as model_error:
-            print(f"❌ 图生图模型加载失败: {model_error}")
-            raise ValueError(f"Failed to load image-to-image model '{base_model}': {str(model_error)}")
+            print(f"❌ 模型加载失败: {model_error}")
+            raise ValueError(f"Failed to load model '{base_model}': {str(model_error)}")
     
-    # 再次检查模型是否加载成功
-    if img2img_pipe is None:
-        raise ValueError("Image-to-image model failed to load properly")
+    # 确保模型加载成功
+    if txt2img_pipe is None:
+        raise ValueError("Model failed to load properly")
     
-    print(f"✅ 图生图模型已就绪: {current_base_model}")
+    print(f"✅ 模型已就绪: {current_base_model}")
     
     # 提取参数
     prompt = params.get('prompt', '')
@@ -1045,7 +1067,7 @@ def image_to_image(params: dict) -> list:
     denoising_strength = params.get('denoisingStrength', 0.7)
     lora_config = params.get('lora_config', {})
     
-    # 🚨 修复：确保prompt和negative_prompt不为None
+    # 确保prompt和negative_prompt不为None
     if prompt is None:
         prompt = ""
     if negative_prompt is None:
@@ -1054,12 +1076,10 @@ def image_to_image(params: dict) -> list:
     print(f"📝 图生图处理 - 提示词: {len(prompt)} 字符")
     print(f"📐 图像尺寸: {width}x{height}, 步数: {steps}, CFG: {cfg_scale}")
     
-    # 🚨 模型加载已在函数开头处理，这里移除重复检查
-    
     # 检查是否需要更新LoRA配置
     if lora_config and isinstance(lora_config, dict) and len(lora_config) > 0:
         lora_id = next(iter(lora_config.keys()))
-        print(f"🎨 图生图切换LoRA: {lora_id}")
+        print(f"🎨 切换LoRA: {lora_id}")
         switch_single_lora(lora_id)
     
     # 处理输入图像
@@ -1071,6 +1091,138 @@ def image_to_image(params: dict) -> list:
     except Exception as e:
         print(f"❌ 图像解码失败: {e}")
         raise ValueError(f"Failed to decode input image: {str(e)}")
+    
+    # 获取当前模型类型
+    model_config = BASE_MODELS.get(current_base_model, {})
+    model_type = model_config.get("model_type", "unknown")
+    
+    print(f"🎯 当前模型类型: {model_type}")
+    
+    # 🚀 新逻辑：真人模型使用"文生图+换脸"，动漫模型使用传统图生图
+    if current_base_model == "realistic" and FACE_SWAP_AVAILABLE:
+        print("🎭 使用真人模型换脸流程：文生图 + 换脸")
+        return _process_realistic_with_face_swap(
+            prompt, negative_prompt, source_image, width, height, 
+            steps, cfg_scale, seed, num_images, base_model
+        )
+    else:
+        print("🎨 使用传统图生图流程")
+        return _process_traditional_img2img(
+            prompt, negative_prompt, source_image, width, height, 
+            steps, cfg_scale, seed, num_images, denoising_strength, base_model
+        )
+
+def _process_realistic_with_face_swap(prompt: str, negative_prompt: str, source_image: Image.Image, 
+                                    width: int, height: int, steps: int, cfg_scale: float, 
+                                    seed: int, num_images: int, base_model: str) -> list:
+    """真人模型：文生图 + 换脸流程"""
+    try:
+        print("🎯 第一步：使用真人模型进行文生图...")
+        
+        # 使用文生图生成初始图像
+        txt2img_results = text_to_image(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            width=width,
+            height=height,
+            steps=steps,
+            cfg_scale=cfg_scale,
+            seed=seed,
+            num_images=num_images,
+            base_model=base_model
+        )
+        
+        if not txt2img_results or len(txt2img_results) == 0:
+            raise ValueError("Text-to-image generation failed")
+        
+        print(f"✅ 文生图完成，生成了 {len(txt2img_results)} 张图像")
+        
+        # 第二步：对每张生成的图像进行换脸处理
+        print("🎭 第二步：进行换脸处理...")
+        
+        final_results = []
+        
+        for i, result_item in enumerate(txt2img_results):
+            try:
+                print(f"🔄 处理第 {i+1}/{len(txt2img_results)} 张图像...")
+                
+                # 从结果中获取图像
+                if isinstance(result_item, dict) and 'url' in result_item:
+                    # 如果结果包含URL，需要下载图像
+                    import requests
+                    response = requests.get(result_item['url'])
+                    generated_image = Image.open(io.BytesIO(response.content))
+                elif hasattr(result_item, 'images') and len(result_item.images) > 0:
+                    generated_image = result_item.images[0]
+                else:
+                    print(f"⚠️ 无法从结果中提取图像，跳过第 {i+1} 张")
+                    continue
+                
+                # 执行换脸
+                face_swapped_image, swap_success = process_face_swap_pipeline(
+                    generated_image, source_image
+                )
+                
+                if swap_success:
+                    print(f"✅ 第 {i+1} 张图像换脸成功")
+                else:
+                    print(f"⚠️ 第 {i+1} 张图像换脸失败，使用原始生成图像")
+                
+                # 上传处理后的图像
+                image_id = str(uuid.uuid4())
+                image_bytes = image_to_bytes(face_swapped_image)
+                image_url = upload_to_r2(image_bytes, f"{image_id}.jpg")
+                
+                # 构建结果
+                result_dict = {
+                    'id': image_id,
+                    'url': image_url,
+                    'prompt': prompt,
+                    'negativePrompt': negative_prompt,
+                    'seed': seed + i if seed != -1 else torch.randint(0, 2**32 - 1, (1,)).item(),
+                    'width': width,
+                    'height': height,
+                    'steps': steps,
+                    'cfgScale': cfg_scale,
+                    'createdAt': time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                    'type': 'image-to-image-with-faceswap',
+                    'baseModel': base_model,
+                    'faceSwapSuccess': swap_success
+                }
+                
+                final_results.append(result_dict)
+                print(f"✅ 第 {i+1} 张图像处理完成: {image_url}")
+                
+            except Exception as e:
+                print(f"❌ 第 {i+1} 张图像处理失败: {e}")
+                continue
+        
+        print(f"🎉 换脸流程完成，成功处理 {len(final_results)} 张图像")
+        return final_results
+        
+    except Exception as e:
+        print(f"❌ 换脸流程失败: {e}")
+        # 如果换脸流程失败，回退到传统图生图
+        print("🔄 回退到传统图生图流程...")
+        return _process_traditional_img2img(
+            prompt, negative_prompt, source_image, width, height, 
+            steps, cfg_scale, seed, num_images, 0.7, base_model
+        )
+
+def _process_traditional_img2img(prompt: str, negative_prompt: str, source_image: Image.Image,
+                               width: int, height: int, steps: int, cfg_scale: float,
+                               seed: int, num_images: int, denoising_strength: float, 
+                               base_model: str) -> list:
+    """传统图生图流程"""
+    global img2img_pipe, current_base_model
+    
+    # 确保img2img_pipe已加载
+    if img2img_pipe is None:
+        print("🔄 img2img_pipe未加载，重新加载...")
+        load_specific_model(current_base_model)
+    
+    if img2img_pipe is None:
+        raise ValueError("Image-to-image pipeline failed to load")
     
     # 调整图像尺寸
     try:
@@ -1084,15 +1236,13 @@ def image_to_image(params: dict) -> list:
     model_config = BASE_MODELS.get(current_base_model, {})
     model_type = model_config.get("model_type", "unknown")
     
-    print(f"🎯 当前模型类型: {model_type}")
-    
     # 设置随机种子
     if seed == -1:
         seed = torch.randint(0, 2**32 - 1, (1,)).item()
     
     generator = torch.Generator(device=img2img_pipe.device).manual_seed(seed)
     
-    # 🚨 根据模型类型使用不同的生成逻辑
+    # 根据模型类型使用不同的生成逻辑
     results = []
     
     try:

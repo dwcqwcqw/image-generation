@@ -82,4 +82,11 @@ env/
 ENV/
 
 # Docker
-.dockerignore 
+.dockerignore
+
+# Face swap reference files (local only)
+faceswap/
+
+# Model files
+*.onnx
+*.pth 
