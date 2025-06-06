@@ -52,6 +52,8 @@ except ImportError:
 
 # 导入换脸集成模块
 try:
+    import sys
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     from face_swap_integration import process_face_swap_pipeline, is_face_swap_available
     FACE_SWAP_AVAILABLE = is_face_swap_available()
     if FACE_SWAP_AVAILABLE:
@@ -61,6 +63,9 @@ try:
 except ImportError as e:
     FACE_SWAP_AVAILABLE = False
     print(f"⚠️ Face swap integration not available: {e}")
+except Exception as e:
+    FACE_SWAP_AVAILABLE = False
+    print(f"⚠️ Face swap integration error: {e}")
 
 # 添加启动日志
 print("=== Starting AI Image Generation Backend ===")
@@ -1099,8 +1104,10 @@ def image_to_image(params: dict) -> list:
     print(f"🎯 当前模型类型: {model_type}")
     
     # 🚀 新逻辑：真人模型使用"文生图+换脸"，动漫模型使用传统图生图
-    if current_base_model == "realistic" and FACE_SWAP_AVAILABLE:
+    if current_base_model == "realistic":
         print("🎭 使用真人模型换脸流程：文生图 + 换脸")
+        if not FACE_SWAP_AVAILABLE:
+            print("⚠️ 换脸功能暂时不可用，将回退到文生图+基础图像处理")
         return _process_realistic_with_face_swap(
             prompt, negative_prompt, source_image, width, height, 
             steps, cfg_scale, seed, num_images, base_model
@@ -1158,15 +1165,22 @@ def _process_realistic_with_face_swap(prompt: str, negative_prompt: str, source_
                     print(f"⚠️ 无法从结果中提取图像，跳过第 {i+1} 张")
                     continue
                 
-                # 执行换脸
-                face_swapped_image, swap_success = process_face_swap_pipeline(
-                    generated_image, source_image
-                )
-                
-                if swap_success:
-                    print(f"✅ 第 {i+1} 张图像换脸成功")
+                # 执行换脸（如果可用）
+                if FACE_SWAP_AVAILABLE:
+                    face_swapped_image, swap_success = process_face_swap_pipeline(
+                        generated_image, source_image
+                    )
+                    
+                    if swap_success:
+                        print(f"✅ 第 {i+1} 张图像换脸成功")
+                    else:
+                        print(f"⚠️ 第 {i+1} 张图像换脸失败，使用原始生成图像")
+                        face_swapped_image = generated_image
+                        swap_success = False
                 else:
-                    print(f"⚠️ 第 {i+1} 张图像换脸失败，使用原始生成图像")
+                    print(f"⚠️ 换脸功能不可用，使用原始生成图像")
+                    face_swapped_image = generated_image
+                    swap_success = False
                 
                 # 上传处理后的图像
                 image_id = str(uuid.uuid4())
@@ -1185,8 +1199,9 @@ def _process_realistic_with_face_swap(prompt: str, negative_prompt: str, source_
                     'steps': steps,
                     'cfgScale': cfg_scale,
                     'createdAt': time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-                    'type': 'image-to-image-with-faceswap',
+                    'type': 'text-to-image-with-faceswap',  # 更新类型名称
                     'baseModel': base_model,
+                    'faceSwapAvailable': FACE_SWAP_AVAILABLE,
                     'faceSwapSuccess': swap_success
                 }
                 

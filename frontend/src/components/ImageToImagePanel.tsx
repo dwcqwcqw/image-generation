@@ -395,29 +395,43 @@ export default function ImageToImagePanel() {
               </div>
             </div>
 
-            {/* Denoising Strength */}
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">
-                Denoising Strength: {params.denoisingStrength}
-              </label>
-              <input
-                type="range"
-                min="0.1"
-                max="1.0"
-                step="0.1"
-                value={params.denoisingStrength}
-                onChange={(e) => setParams(prev => ({ ...prev, denoisingStrength: Number(e.target.value) }))}
-                className="slider"
-                disabled={status === 'pending'}
-              />
-              <div className="flex justify-between text-xs text-gray-500">
-                <span>0.1 (Subtle)</span>
-                <span>1.0 (Strong)</span>
+            {/* 注意：真人模型现在使用"文生图+换脸"流程，不再需要Denoising Strength */}
+            {baseModel === 'anime' && (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  Denoising Strength: {params.denoisingStrength}
+                </label>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1.0"
+                  step="0.1"
+                  value={params.denoisingStrength}
+                  onChange={(e) => setParams(prev => ({ ...prev, denoisingStrength: Number(e.target.value) }))}
+                  className="slider"
+                  disabled={status === 'pending'}
+                />
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>0.1 (Subtle)</span>
+                  <span>1.0 (Strong)</span>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Lower values preserve more of the original image
+                </p>
               </div>
-              <p className="text-xs text-gray-500">
-                Lower values preserve more of the original image
-              </p>
-            </div>
+            )}
+
+            {baseModel === 'realistic' && (
+              <div className="space-y-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-center space-x-2 text-blue-700">
+                  <div className="w-4 h-4 rounded-full bg-blue-500"></div>
+                  <span className="text-sm font-medium">智能换脸模式</span>
+                </div>
+                <p className="text-xs text-blue-600">
+                  真人模型将先根据您的提示词生成图像，然后自动将您上传的人脸替换到生成的图像中
+                </p>
+              </div>
+            )}
 
             {/* LoRA Model Selector */}
             <LoRASelector

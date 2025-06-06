@@ -40,7 +40,7 @@ export interface ImageToImageParams {
   cfgScale: number
   seed: number
   numImages: number
-  denoisingStrength: number
+  denoisingStrength: number // 动漫模型需要，真人模型忽略
   baseModel: BaseModelType // 新增：基础模型选择 (required)
   lora_config?: LoRAConfig // 支持多LoRA配置
   lora_model?: string // 保留兼容性
