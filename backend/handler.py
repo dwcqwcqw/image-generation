@@ -84,7 +84,7 @@ try:
 except ImportError as e:
     INSIGHTFACE_AVAILABLE = False
     print(f"⚠️ InsightFace not available - face swap will be disabled: {e}")
-    except Exception as e:
+except Exception as e:
     INSIGHTFACE_AVAILABLE = False
     print(f"⚠️ InsightFace import error - face swap will be disabled: {e}")
 
@@ -100,11 +100,11 @@ except Exception as e:
     print(f"⚠️ GFPGAN import error - face enhancement will be disabled: {e}")
 
 # 导入基本依赖
-        try:
-            import cv2
+try:
+    import cv2
     import numpy as np
     OPENCV_AVAILABLE = True
-        except ImportError:
+except ImportError:
     OPENCV_AVAILABLE = False
     print("⚠️ OpenCV not available - face swap will be disabled")
 
@@ -260,7 +260,7 @@ def init_face_enhancer():
             )
             print("✅ GFPGAN face enhancer initialized")
             
-                except Exception as e:
+        except Exception as e:
             print(f"❌ Failed to initialize GFPGAN: {e}")
             _face_enhancer = None
             
@@ -1405,7 +1405,8 @@ def text_to_image(prompt: str, negative_prompt: str = "", width: int = 1024, hei
     if lora_config and isinstance(lora_config, dict) and len(lora_config) > 0:
         lora_id = next(iter(lora_config.keys()))
         print(f"🎨 切换LoRA: {lora_id}")
-            switch_single_lora(lora_id)
+
+        switch_single_lora(lora_id)
     else:
         print("ℹ️  没有LoRA配置，使用基础模型生成")
     
@@ -1517,7 +1518,8 @@ def image_to_image(params: dict) -> list:
     if lora_config and isinstance(lora_config, dict) and len(lora_config) > 0:
         lora_id = next(iter(lora_config.keys()))
         print(f"🎨 切换LoRA: {lora_id}")
-            switch_single_lora(lora_id)
+
+        switch_single_lora(lora_id)
     
     # 处理输入图像
     try:
@@ -1544,7 +1546,7 @@ def image_to_image(params: dict) -> list:
             prompt, negative_prompt, source_image, width, height, 
             steps, cfg_scale, seed, num_images, base_model
         )
-        else:
+    else:
         print("🎨 使用传统图生图流程")
         return _process_traditional_img2img(
             prompt, negative_prompt, source_image, width, height, 
@@ -1605,11 +1607,11 @@ def _process_realistic_with_face_swap(prompt: str, negative_prompt: str, source_
                     
                     if swap_success:
                         print(f"✅ 第 {i+1} 张图像换脸成功")
-                        else:
+                    else:
                         print(f"⚠️ 第 {i+1} 张图像换脸失败，使用原始生成图像")
                         face_swapped_image = generated_image
                         swap_success = False
-                                else:
+                else:
                     print(f"⚠️ 换脸功能不可用，使用原始生成图像")
                     face_swapped_image = generated_image
                     swap_success = False
@@ -1747,7 +1749,7 @@ def _process_traditional_img2img(prompt: str, negative_prompt: str, source_image
                             'baseModel': base_model
                         })
                         print(f"✅ FLUX图生图 {i+1} 生成成功: {image_url}")
-                                    else:
+                    else:
                         print(f"❌ FLUX图生图 {i+1} 生成失败：无图像结果")
                         
                 except Exception as e:
@@ -1794,7 +1796,7 @@ def _process_traditional_img2img(prompt: str, negative_prompt: str, source_image
                                 generator=current_generator,
                                 num_images_per_prompt=1
                             )
-                                else:
+                    else:
                         # 动漫模型不使用autocast
                         print("💡 动漫模型图生图: 使用float32精度")
                         result = img2img_pipe(
@@ -1811,7 +1813,7 @@ def _process_traditional_img2img(prompt: str, negative_prompt: str, source_image
                         )
                     
                     if hasattr(result, 'images') and len(result.images) > 0:
-                    image = result.images[0]
+                        image = result.images[0]
                     # 上传到R2
                     image_id = str(uuid.uuid4())
                     image_bytes = image_to_bytes(image)
@@ -1834,12 +1836,12 @@ def _process_traditional_img2img(prompt: str, negative_prompt: str, source_image
                             'baseModel': base_model
                         })
                         print(f"✅ Diffusers图生图 {i+1} 生成成功: {image_url}")
-                else:
+                    else:
                         print(f"❌ Diffusers图生图 {i+1} 生成失败：无图像结果")
-                    
-            except Exception as e:
+                        
+                except Exception as e:
                     print(f"❌ Diffusers图生图 {i+1} 生成失败: {e}")
-                continue
+                    continue
         else:
             raise ValueError(f"Unsupported model type for image-to-image: {model_type}")
                 
@@ -1906,8 +1908,8 @@ def switch_single_lora(lora_id: str) -> bool:
         raise ValueError("No pipeline loaded, cannot switch LoRA")
 
     # 动态搜索LoRA文件
-        lora_path = find_lora_file(lora_id, current_base_model)
-        if not lora_path:
+    lora_path = find_lora_file(lora_id, current_base_model)
+    if not lora_path:
         raise ValueError(f"LoRA文件未找到: {lora_id}")
 
     # 如果已经是当前LoRA，直接返回
@@ -1945,12 +1947,12 @@ def switch_single_lora(lora_id: str) -> bool:
     except Exception as e:
         print(f"❌ LoRA切换失败: {str(e)}")
         # 强制清理，防止后续死锁
-            if hasattr(txt2img_pipe, 'unload_lora_weights'):
-        try:
+        if hasattr(txt2img_pipe, 'unload_lora_weights'):
+            try:
                 txt2img_pipe.unload_lora_weights()
             except:
                 pass
-            if img2img_pipe and hasattr(img2img_pipe, 'unload_lora_weights'):
+        if img2img_pipe and hasattr(img2img_pipe, 'unload_lora_weights'):
             try:
                 img2img_pipe.unload_lora_weights()
             except:
@@ -2164,7 +2166,7 @@ def handler(job):
             if requested_lora_config and isinstance(requested_lora_config, dict) and len(requested_lora_config) > 0:
                 lora_id = next(iter(requested_lora_config.keys()))
                 print(f"Auto-loading LoRA config for generation: {lora_id}")
-                switch_single_lora(lora_id)
+            switch_single_lora(lora_id)
             results = image_to_image(params)
             return {
                 'success': True,
