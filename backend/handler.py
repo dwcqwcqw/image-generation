@@ -187,7 +187,7 @@ def get_execution_providers():
     return providers
 
 def init_face_analyser():
-    """初始化人脸分析器"""
+    """初始化人脸分析器 - 优化检测精度"""
     global _face_analyser
     
     if not INSIGHTFACE_AVAILABLE:
@@ -204,7 +204,20 @@ def init_face_analyser():
                 root=os.path.dirname(model_path),
                 providers=get_execution_providers()
             )
-            _face_analyser.prepare(ctx_id=0, det_size=(640, 640))
+            
+            # 🚨 优化：提高检测分辨率和质量
+            # 从 (640, 640) 提升到 (1024, 1024) 提高检测精度
+            try:
+                _face_analyser.prepare(
+                    ctx_id=0, 
+                    det_size=(1024, 1024),  # 提高检测分辨率
+                    det_thresh=0.45  # 稍微降低阈值，检测更多细节
+                )
+                print("✅ Enhanced face analyser initialized with higher resolution (1024x1024)")
+            except:
+                # 如果高分辨率失败，回退到标准设置
+                _face_analyser.prepare(ctx_id=0, det_size=(640, 640))
+                print("⚠️  Fallback to standard resolution (640x640)")
             
         except Exception as e:
             print(f"❌ Failed to initialize face analyser: {e}")
@@ -266,8 +279,8 @@ def init_face_enhancer():
             
     return _face_enhancer
 
-def enhance_face_quality(image):
-    """使用GFPGAN提升脸部质量"""
+def enhance_face_quality(image, restoration_strength=0.85):
+    """使用GFPGAN提升脸部质量 - 优化修复控制"""
     try:
         face_enhancer = init_face_enhancer()
         if face_enhancer is None:
@@ -280,20 +293,40 @@ def enhance_face_quality(image):
         else:
             image_array = image
         
-        # GFPGAN处理
-        print("🔧 Enhancing face quality with GFPGAN...")
-        _, _, enhanced_image = face_enhancer.enhance(
-            image_array, 
-            has_aligned=False, 
-            only_center_face=False, 
-            paste_back=True
-        )
+        # 🚨 优化：调整GFPGAN参数以获得更自然的效果
+        print(f"🔧 Enhancing face quality with optimized GFPGAN (strength: {restoration_strength:.2f})...")
+        
+        try:
+            _, _, enhanced_image = face_enhancer.enhance(
+                image_array, 
+                has_aligned=False, 
+                only_center_face=False, 
+                paste_back=True,
+                weight=restoration_strength  # 控制修复强度
+            )
+            
+            # 🚨 优化：与原图智能混合，避免过度修复
+            if enhanced_image is not None and restoration_strength < 1.0:
+                # 适度混合原图和修复结果
+                blend_factor = 0.15  # 保留15%原图特征
+                final_result = (enhanced_image * (1 - blend_factor) + 
+                              image_array * blend_factor).astype(np.uint8)
+                print(f"🎨 Applied smart blending with original image (factor: {blend_factor:.2f})")
+            else:
+                final_result = enhanced_image
+                
+        except Exception as enhancement_error:
+            print(f"⚠️  GFPGAN enhancement failed: {enhancement_error}")
+            # 如果增强失败，使用简单的图像增强
+            import cv2
+            final_result = cv2.detailEnhance(image_array, sigma_s=10, sigma_r=0.15)
+            print("🔧 Applied fallback detail enhancement")
         
         # 转换回PIL格式
         if isinstance(image, Image.Image):
-            return Image.fromarray(enhanced_image)
+            return Image.fromarray(final_result)
         else:
-            return enhanced_image
+            return final_result
             
     except Exception as e:
         print(f"❌ Face enhancement error: {e}")
@@ -318,8 +351,8 @@ def detect_faces(image):
         print(f"❌ Face detection error: {e}")
         return []
 
-def swap_face(source_face, target_face, target_image):
-    """执行换脸操作，优化质量设置"""
+def swap_face(source_face, target_face, target_image, blend_ratio=0.88):
+    """执行换脸操作 - 增强质量和自然度"""
     try:
         face_swapper = init_face_swapper()
         if face_swapper is None:
@@ -333,12 +366,54 @@ def swap_face(source_face, target_face, target_image):
             paste_back=True
         )
         
-        # 额外的质量优化：后处理减少伪影
+        # 🚨 优化1：智能混合避免突兀效果
+        if result is not None and blend_ratio < 1.0:
+            import cv2
+            # 获取面部区域创建渐变mask
+            bbox = target_face.bbox.astype(int)
+            x1, y1, x2, y2 = bbox
+            
+            # 创建渐变mask，中心区域换脸强度高，边缘渐变
+            mask = np.zeros(target_image.shape[:2], dtype=np.float32)
+            center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
+            max_radius = max(x2 - x1, y2 - y1) // 2
+            
+            y_indices, x_indices = np.ogrid[:target_image.shape[0], :target_image.shape[1]]
+            distances = np.sqrt((x_indices - center_x)**2 + (y_indices - center_y)**2)
+            
+            # 在面部区域内创建渐变
+            face_mask = distances <= max_radius * 1.2
+            mask[face_mask] = np.maximum(0, 1 - (distances[face_mask] / (max_radius * 1.2)) * 0.4)
+            mask = np.clip(mask * blend_ratio, 0, 1)
+            
+            # 应用渐变混合
+            mask_3d = np.stack([mask] * 3, axis=2)
+            result = (result * mask_3d + target_image * (1 - mask_3d)).astype(np.uint8)
+            print(f"🎨 Applied intelligent blending (ratio: {blend_ratio:.2f})")
+        
+        # 🚨 优化2：高级后处理
         if result is not None:
             import cv2
-            # 应用双边滤波来减少伪影同时保持边缘清晰
-            result = cv2.bilateralFilter(result, 5, 50, 50)
-            print("✨ Applied post-processing for quality enhancement")
+            
+            # 增强双边滤波参数 - 更好的降噪效果
+            result = cv2.bilateralFilter(result, 9, 80, 80)
+            
+            # 面部区域细节锐化
+            bbox = target_face.bbox.astype(int)
+            padding = 15
+            x1, y1 = max(0, bbox[0]-padding), max(0, bbox[1]-padding)
+            x2, y2 = min(result.shape[1], bbox[2]+padding), min(result.shape[0], bbox[3]+padding)
+            
+            face_region = result[y1:y2, x1:x2]
+            if face_region.size > 0:
+                # 轻微锐化增强细节
+                kernel = np.array([[-0.1, -0.1, -0.1],
+                                 [-0.1,  1.8, -0.1],
+                                 [-0.1, -0.1, -0.1]])
+                sharpened = cv2.filter2D(face_region, -1, kernel)
+                result[y1:y2, x1:x2] = sharpened
+            
+            print("✨ Applied enhanced post-processing (bilateral filter + sharpening)")
         
         return result
         
@@ -416,8 +491,9 @@ def process_face_swap_pipeline(generated_image, source_image):
         print(f"✅ Selected largest target face (confidence: {target_face.det_score:.3f}, area: {target_area:.0f})")
         
         result_image = generated_cv2.copy()
-        print(f"🔄 Swapping face (largest only)...")
-        result_image = swap_face(source_face, target_face, result_image)
+        print(f"🔄 Swapping face (largest only) with enhanced blending...")
+        # 🚨 优化：使用更高的混合比例提升逼真度
+        result_image = swap_face(source_face, target_face, result_image, blend_ratio=0.92)
         swap_count = 1
         
         print(f"✅ Face swap completed, processed {swap_count} faces")
@@ -428,11 +504,11 @@ def process_face_swap_pipeline(generated_image, source_image):
             print("❌ Result image conversion failed")
             return generated_image, False
         
-        # 🆕 添加GFPGAN脸部修复步骤
-        print("🔧 Starting face enhancement with GFPGAN...")
-        enhanced_result = enhance_face_quality(result_pil)
+        # 🆕 添加GFPGAN脸部修复步骤 - 优化参数
+        print("🔧 Starting enhanced face restoration with GFPGAN...")
+        enhanced_result = enhance_face_quality(result_pil, restoration_strength=0.75)
         if enhanced_result is not None:
-            print("✅ Face enhancement completed")
+            print("✅ Enhanced face restoration completed")
             return enhanced_result, True
         else:
             print("⚠️  Face enhancement failed, returning original swap result")
