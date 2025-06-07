@@ -43,15 +43,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --force-reinstall "numpy>=1.24.0,<2.0"
 
-# Copy application code explicitly to ensure all files are included
-COPY handler.py .
-COPY face_swap_integration.py .
-COPY start_debug.py .
-COPY utils/ ./utils/
-COPY models/ ./models/
-COPY pulid/ ./pulid/
-
-# Copy any remaining files (but explicitly ensure critical ones above)
+# Copy application code
 COPY . .
 
 # Set Python path

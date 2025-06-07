@@ -50,48 +50,268 @@ except ImportError:
     COMPEL_AVAILABLE = False
     print("⚠️  Compel library not available - long prompt support limited")
 
-# 导入换脸集成模块
-try:
-    # 确保当前目录在Python路径中
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    if current_dir not in sys.path:
-        sys.path.insert(0, current_dir)
-    
-    # 多个可能的文件位置
-    possible_locations = [
-        os.path.join(current_dir, 'face_swap_integration.py'),  # 同目录
-        os.path.join(os.getcwd(), 'face_swap_integration.py'),  # 工作目录
-        '/app/face_swap_integration.py',  # 容器绝对路径
-        './face_swap_integration.py'  # 相对路径
+# =============================================================================
+# 内嵌换脸集成功能 - Face Swap Integration (Embedded)
+# =============================================================================
+
+def add_faceswap_path():
+    """动态添加faceswap模块路径"""
+    possible_paths = [
+        "/Users/baileyli/Documents/AI同志项目/image generation/faceswap",  # 本地开发
+        "/app/faceswap",  # Docker容器
+        "/workspace/faceswap",  # RunPod
+        "../faceswap",  # 相对路径
+        "./faceswap"  # 当前目录
     ]
     
-    face_swap_file = None
-    for location in possible_locations:
-        if os.path.exists(location):
-            face_swap_file = location
-            break
+    for path in possible_paths:
+        if os.path.exists(path) and path not in sys.path:
+            sys.path.append(path)
+            print(f"✓ Added faceswap path: {path}")
+            return True
     
-    if not face_swap_file:
-        raise ImportError(f"face_swap_integration.py not found in any of these locations: {possible_locations}")
+    print("⚠️ No faceswap path found, using system path")
+    return False
+
+add_faceswap_path()
+
+# 尝试导入换脸相关依赖
+try:
+    import insightface
+    INSIGHTFACE_AVAILABLE = True
+    print("✓ InsightFace available for face analysis")
+except ImportError as e:
+    INSIGHTFACE_AVAILABLE = False
+    print(f"⚠️ InsightFace not available - face swap will be disabled: {e}")
+except Exception as e:
+    INSIGHTFACE_AVAILABLE = False
+    print(f"⚠️ InsightFace import error - face swap will be disabled: {e}")
+
+try:
+    import gfpgan
+    GFPGAN_AVAILABLE = True
+    print("✓ GFPGAN available for face enhancement")
+except ImportError as e:
+    GFPGAN_AVAILABLE = False
+    print(f"⚠️ GFPGAN not available - face enhancement will be disabled: {e}")
+except Exception as e:
+    GFPGAN_AVAILABLE = False
+    print(f"⚠️ GFPGAN import error - face enhancement will be disabled: {e}")
+
+# 导入基本依赖
+try:
+    import cv2
+    import numpy as np
+    OPENCV_AVAILABLE = True
+except ImportError:
+    OPENCV_AVAILABLE = False
+    print("⚠️ OpenCV not available - face swap will be disabled")
+
+# 模型路径配置
+FACE_SWAP_MODELS_CONFIG = {
+    "face_swap": "/runpod-volume/faceswap/inswapper_128_fp16.onnx",
+    "face_enhance": "/runpod-volume/faceswap/GFPGANv1.4.pth", 
+    "face_analysis": "/runpod-volume/faceswap/buffalo_l"
+}
+
+# 全局模型缓存
+_face_analyser = None
+_face_swapper = None
+_face_enhancer = None
+
+def get_execution_providers():
+    """获取执行provider列表，优先使用CUDA"""
+    providers = []
+    if torch.cuda.is_available():
+        providers.append('CUDAExecutionProvider')
+    providers.append('CPUExecutionProvider')
+    return providers
+
+def init_face_analyser():
+    """初始化人脸分析器"""
+    global _face_analyser
     
-    print(f"🔍 Loading face swap integration from: {face_swap_file}")
-    from face_swap_integration import process_face_swap_pipeline, is_face_swap_available
+    if not INSIGHTFACE_AVAILABLE:
+        return None
+        
+    if _face_analyser is None:
+        try:
+            model_path = FACE_SWAP_MODELS_CONFIG["face_analysis"]
+            if not os.path.exists(model_path):
+                return None
+            
+            _face_analyser = insightface.app.FaceAnalysis(
+                name='buffalo_l',
+                root=os.path.dirname(model_path),
+                providers=get_execution_providers()
+            )
+            _face_analyser.prepare(ctx_id=0, det_size=(640, 640))
+            
+        except Exception as e:
+            print(f"❌ Failed to initialize face analyser: {e}")
+            _face_analyser = None
+            
+    return _face_analyser
+
+def init_face_swapper():
+    """初始化换脸模型"""
+    global _face_swapper
     
+    if not INSIGHTFACE_AVAILABLE:
+        return None
+        
+    if _face_swapper is None:
+        try:
+            model_path = FACE_SWAP_MODELS_CONFIG["face_swap"]
+            if not os.path.exists(model_path):
+                return None
+            
+            _face_swapper = insightface.model_zoo.get_model(
+                model_path,
+                providers=get_execution_providers()
+            )
+            
+        except Exception as e:
+            print(f"❌ Failed to initialize face swapper: {e}")
+            _face_swapper = None
+            
+    return _face_swapper
+
+def detect_faces(image):
+    """检测图像中的人脸"""
+    try:
+        face_analyser = init_face_analyser()
+        if face_analyser is None:
+            return []
+        
+        faces = face_analyser.get(image)
+        if faces is None:
+            return []
+        
+        # 按检测置信度排序
+        faces.sort(key=lambda x: x.det_score, reverse=True)
+        return faces
+        
+    except Exception as e:
+        print(f"❌ Face detection error: {e}")
+        return []
+
+def swap_face(source_face, target_face, target_image):
+    """执行换脸操作"""
+    try:
+        face_swapper = init_face_swapper()
+        if face_swapper is None:
+            return target_image
+        
+        result = face_swapper.get(target_image, target_face, source_face, paste_back=True)
+        return result
+        
+    except Exception as e:
+        print(f"❌ Face swap error: {e}")
+        return target_image
+
+def pil_to_cv2(pil_image):
+    """PIL图像转OpenCV格式"""
+    if not OPENCV_AVAILABLE:
+        return None
+    return cv2.cvtColor(np.array(pil_image.convert('RGB')), cv2.COLOR_RGB2BGR)
+
+def cv2_to_pil(cv2_image):
+    """OpenCV图像转PIL格式"""
+    if not OPENCV_AVAILABLE:
+        return None
+    return Image.fromarray(cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB))
+
+def process_face_swap_pipeline(generated_image, source_image):
+    """
+    换脸处理主流程
+    
+    Args:
+        generated_image: PIL.Image - 生成的图像
+        source_image: PIL.Image - 源图像（用户上传的参考图像）
+        
+    Returns:
+        tuple: (处理后的图像(PIL.Image), 是否成功(bool))
+    """
+    try:
+        print("🔄 Starting face swap pipeline...")
+        
+        if not OPENCV_AVAILABLE or not INSIGHTFACE_AVAILABLE:
+            print("❌ Required dependencies not available")
+            return generated_image, False
+        
+        # 转换为OpenCV格式
+        generated_cv2 = pil_to_cv2(generated_image)
+        source_cv2 = pil_to_cv2(source_image)
+        
+        if generated_cv2 is None or source_cv2 is None:
+            print("❌ Image conversion failed")
+            return generated_image, False
+        
+        # 检测源图像中的人脸
+        print("🔍 Detecting faces in source image...")
+        source_faces = detect_faces(source_cv2)
+        if not source_faces:
+            print("❌ No faces detected in source image")
+            return generated_image, False
+        
+        # 检测生成图像中的人脸
+        print("🔍 Detecting faces in generated image...")
+        target_faces = detect_faces(generated_cv2)
+        if not target_faces:
+            print("❌ No faces detected in generated image")
+            return generated_image, False
+        
+        # 随机选择源人脸（支持多人脸）
+        import random
+        source_face = random.choice(source_faces)
+        print(f"✅ Selected source face (confidence: {source_face.det_score:.3f})")
+        
+        # 对每个目标人脸进行换脸
+        result_image = generated_cv2.copy()
+        swap_count = 0
+        
+        for i, target_face in enumerate(target_faces):
+            print(f"🔄 Swapping face {i+1}/{len(target_faces)}...")
+            result_image = swap_face(source_face, target_face, result_image)
+            swap_count += 1
+        
+        print(f"✅ Face swap completed, processed {swap_count} faces")
+        
+        # 转换回PIL格式
+        result_pil = cv2_to_pil(result_image)
+        if result_pil is None:
+            print("❌ Result image conversion failed")
+            return generated_image, False
+            
+        return result_pil, True
+        
+    except Exception as e:
+        print(f"❌ Face swap pipeline error: {e}")
+        import traceback
+        print(f"❌ Full error: {traceback.format_exc()}")
+        return generated_image, False
+
+def is_face_swap_available():
+    """检查换脸功能是否可用"""
+    if not INSIGHTFACE_AVAILABLE or not OPENCV_AVAILABLE:
+        return False
+    
+    # 检查模型文件
+    for model_type, path in FACE_SWAP_MODELS_CONFIG.items():
+        if not os.path.exists(path):
+            print(f"❌ Missing model: {model_type} at {path}")
+            return False
+    
+    return True
+
+# 初始化换脸功能
+try:
     FACE_SWAP_AVAILABLE = is_face_swap_available()
     if FACE_SWAP_AVAILABLE:
-        print("✓ Face swap integration loaded successfully")
+        print("✓ Face swap integration loaded successfully (embedded)")
     else:
         print("⚠️ Face swap models not available - face swap will be disabled")
-except ImportError as e:
-    FACE_SWAP_AVAILABLE = False
-    print(f"⚠️ Face swap integration not available: {e}")
-    print(f"📁 Current directory: {os.path.dirname(os.path.abspath(__file__))}")
-    print(f"📁 Working directory: {os.getcwd()}")
-    try:
-        print(f"📁 Files in current directory: {os.listdir(os.path.dirname(os.path.abspath(__file__)))}")
-        print(f"📁 Files in working directory: {os.listdir(os.getcwd())}")
-    except Exception as list_error:
-        print(f"📁 Could not list directory contents: {list_error}")
 except Exception as e:
     FACE_SWAP_AVAILABLE = False
     print(f"⚠️ Face swap integration error: {e}")
