@@ -1814,27 +1814,27 @@ def _process_traditional_img2img(prompt: str, negative_prompt: str, source_image
                     
                     if hasattr(result, 'images') and len(result.images) > 0:
                         image = result.images[0]
-                        # 上传到R2
-                        image_id = str(uuid.uuid4())
-                        image_bytes = image_to_bytes(image)
-                        image_url = upload_to_r2(image_bytes, f"{image_id}.jpg")
-                        
-                        # 🚨 修复：返回格式与前端期望一致
-                        results.append({
-                                'id': image_id,  # 前端期望的字段名
-                                'url': image_url,  # 前端期望的字段名
-                                'prompt': prompt,
-                                'negativePrompt': negative_prompt,
-                                'seed': current_seed,
-                                'width': width,
-                                'height': height,
-                                'steps': steps,
-                                'cfgScale': cfg_scale,
-                                'denoisingStrength': denoising_strength,
-                                'createdAt': time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-                                'type': 'image-to-image',
-                                'baseModel': base_model
-                            })
+                    # 上传到R2
+                    image_id = str(uuid.uuid4())
+                    image_bytes = image_to_bytes(image)
+                    image_url = upload_to_r2(image_bytes, f"{image_id}.jpg")
+                    
+                    # 🚨 修复：返回格式与前端期望一致
+                    results.append({
+                            'id': image_id,  # 前端期望的字段名
+                            'url': image_url,  # 前端期望的字段名
+                            'prompt': prompt,
+                            'negativePrompt': negative_prompt,
+                            'seed': current_seed,
+                            'width': width,
+                            'height': height,
+                            'steps': steps,
+                            'cfgScale': cfg_scale,
+                            'denoisingStrength': denoising_strength,
+                            'createdAt': time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                            'type': 'image-to-image',
+                            'baseModel': base_model
+                        })
                         print(f"✅ Diffusers图生图 {i+1} 生成成功: {image_url}")
                     else:
                         print(f"❌ Diffusers图生图 {i+1} 生成失败：无图像结果")
