@@ -167,9 +167,11 @@ def call_face_swap_api(source_image_url: str, target_image_url: str) -> Optional
             if status == 'COMPLETED':
                 # 3. 处理成功结果
                 if 'output' in result and 'result' in result['output']:
-                    base64_image = result['output']['result']
+                    result_data = result['output']['result']
                     print("✅ 换脸API调用成功")
-                    return base64_image
+                    print(f"🔍 结果类型: {type(result_data)}")
+                    print(f"🔍 结果内容: {str(result_data)[:200]}...")
+                    return result_data
                 else:
                     print(f"❌ 结果格式异常: {result}")
                     return None
@@ -224,21 +226,38 @@ def process_face_swap_api_pipeline(generated_image: Image.Image, source_image: I
         target_url = upload_image_to_temp_url(generated_image)
         
         # 2. 调用换脸API
-        result_base64 = call_face_swap_api(source_url, target_url)
+        result_data = call_face_swap_api(source_url, target_url)
         
-        if result_base64 is None:
+        if result_data is None:
             print("❌ API换脸失败，返回原始图像")
             return generated_image, False
         
-        # 3. 解码Base64结果
+        # 3. 处理结果（支持URL和Base64两种格式）
         try:
-            image_data = base64.b64decode(result_base64)
-            result_image = Image.open(io.BytesIO(image_data))
-            print("✅ API换脸成功完成")
-            return result_image, True
+            # 检查结果是URL还是Base64
+            if isinstance(result_data, str) and result_data.startswith(('http://', 'https://')):
+                # 结果是URL，下载图像
+                print(f"📥 下载换脸结果图像: {result_data}")
+                image_response = requests.get(result_data, timeout=30)
+                if image_response.status_code == 200:
+                    result_image = Image.open(io.BytesIO(image_response.content))
+                    print("✅ API换脸成功完成 (URL)")
+                    return result_image, True
+                else:
+                    print(f"❌ 下载图像失败: {image_response.status_code}")
+                    return generated_image, False
+            else:
+                # 结果是Base64，解码
+                print("🔄 解码Base64图像数据...")
+                image_data = base64.b64decode(result_data)
+                result_image = Image.open(io.BytesIO(image_data))
+                print("✅ API换脸成功完成 (Base64)")
+                return result_image, True
             
         except Exception as decode_error:
-            print(f"❌ Base64解码失败: {decode_error}")
+            print(f"❌ 图像处理失败: {decode_error}")
+            print(f"❌ 结果数据类型: {type(result_data)}")
+            print(f"❌ 结果数据长度: {len(str(result_data)) if result_data else 0}")
             return generated_image, False
             
     except Exception as e:
