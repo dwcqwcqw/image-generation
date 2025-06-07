@@ -197,47 +197,57 @@ export default function ImageGallery({
           </div>
         )}
         
-        {displayImages.map((image) => (
-          <div key={image.id} className="group relative aspect-square bg-gray-100 rounded-lg overflow-hidden">
-            {/* Image type badge */}
-            <div className="absolute top-2 left-2 z-10">
-              {isCurrentImage(image.id) ? (
-                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
-                  <Clock className="w-3 h-3 mr-1" />
-                  Current
-                </span>
-              ) : (
-                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
-                  <Archive className="w-3 h-3 mr-1" />
-                  History
-                </span>
-              )}
-            </div>
+        {displayImages.map((image) => {
+          // 计算图片的宽高比
+          const aspectRatio = image.width / image.height
+          const isLandscape = aspectRatio > 1
+          const isPortrait = aspectRatio < 1
+          
+          return (
+            <div key={image.id} className="group relative bg-gray-100 rounded-lg overflow-hidden" style={{
+              aspectRatio: `${image.width} / ${image.height}`,
+              minHeight: '200px',
+              maxHeight: isPortrait ? '400px' : '300px'
+            }}>
+              {/* Image type badge */}
+              <div className="absolute top-2 left-2 z-10">
+                {isCurrentImage(image.id) ? (
+                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
+                    <Clock className="w-3 h-3 mr-1" />
+                    Current
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                    <Archive className="w-3 h-3 mr-1" />
+                    History
+                  </span>
+                )}
+              </div>
 
-            {/* 使用原生img标签避免Next.js Image组件的URL重写问题 */}
-            <img
-              src={getCloudflareImageUrl(image.url)}
-              alt={image.prompt}
-              className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-              loading="lazy"
-              onError={(e) => {
-                console.error('Image load error for:', image.url)
-                debugImageUrl(image.url)
-                const target = e.target as HTMLImageElement
-                
-                // 多重回退策略
-                if (target.src === getCloudflareImageUrl(image.url)) {
-                  console.log('Trying primary proxy URL as fallback')
-                  target.src = getProxyImageUrl(image.url)
-                } else if (target.src === getProxyImageUrl(image.url)) {
-                  console.log('Trying secondary proxy URL')
-                  target.src = getSecondaryProxyUrl(image.url)
-                } else if (target.src !== image.url) {
-                  console.log('Trying original URL as final fallback')
-                  target.src = image.url
-                }
-              }}
-            />
+              {/* 使用原生img标签避免Next.js Image组件的URL重写问题 */}
+              <img
+                src={getCloudflareImageUrl(image.url)}
+                alt={image.prompt}
+                className="absolute inset-0 w-full h-full object-contain transition-transform duration-300 group-hover:scale-105"
+                loading="lazy"
+                onError={(e) => {
+                  console.error('Image load error for:', image.url)
+                  debugImageUrl(image.url)
+                  const target = e.target as HTMLImageElement
+                  
+                  // 多重回退策略
+                  if (target.src === getCloudflareImageUrl(image.url)) {
+                    console.log('Trying primary proxy URL as fallback')
+                    target.src = getProxyImageUrl(image.url)
+                  } else if (target.src === getProxyImageUrl(image.url)) {
+                    console.log('Trying secondary proxy URL')
+                    target.src = getSecondaryProxyUrl(image.url)
+                  } else if (target.src !== image.url) {
+                    console.log('Trying original URL as final fallback')
+                    target.src = image.url
+                  }
+                }}
+              />
             
             {/* Overlay */}
             <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 transition-all duration-300 flex items-end">
@@ -270,7 +280,7 @@ export default function ImageGallery({
               </div>
             </div>
           </div>
-        ))}
+        )})}
       </div>
 
       {/* Image Detail Modal */}
@@ -302,11 +312,14 @@ export default function ImageGallery({
               </div>
               
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden">
+                <div className="relative bg-gray-100 rounded-lg overflow-hidden" style={{
+                  aspectRatio: `${selectedImage.width} / ${selectedImage.height}`,
+                  maxHeight: '70vh'
+                }}>
                   <img
                     src={getCloudflareImageUrl(selectedImage.url)}
                     alt={selectedImage.prompt}
-                    className="absolute inset-0 w-full h-full object-cover"
+                    className="absolute inset-0 w-full h-full object-contain"
                     loading="lazy"
                   />
                 </div>

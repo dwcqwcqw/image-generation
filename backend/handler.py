@@ -52,9 +52,19 @@ except ImportError:
 
 # 导入换脸集成模块
 try:
-    import sys
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    # 确保当前目录在Python路径中
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    if current_dir not in sys.path:
+        sys.path.insert(0, current_dir)
+    
+    # 检查face_swap_integration.py文件是否存在
+    face_swap_file = os.path.join(current_dir, 'face_swap_integration.py')
+    if not os.path.exists(face_swap_file):
+        raise ImportError(f"face_swap_integration.py not found at {face_swap_file}")
+    
+    print(f"🔍 Loading face swap integration from: {face_swap_file}")
     from face_swap_integration import process_face_swap_pipeline, is_face_swap_available
+    
     FACE_SWAP_AVAILABLE = is_face_swap_available()
     if FACE_SWAP_AVAILABLE:
         print("✓ Face swap integration loaded successfully")
@@ -63,9 +73,13 @@ try:
 except ImportError as e:
     FACE_SWAP_AVAILABLE = False
     print(f"⚠️ Face swap integration not available: {e}")
+    print(f"📁 Current directory: {os.path.dirname(os.path.abspath(__file__))}")
+    print(f"📁 Files in current directory: {os.listdir(os.path.dirname(os.path.abspath(__file__)))}")
 except Exception as e:
     FACE_SWAP_AVAILABLE = False
     print(f"⚠️ Face swap integration error: {e}")
+    import traceback
+    print(f"📝 Error traceback: {traceback.format_exc()}")
 
 # 添加启动日志
 print("=== Starting AI Image Generation Backend ===")

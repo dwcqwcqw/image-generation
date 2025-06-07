@@ -41,17 +41,23 @@ try:
     import insightface
     INSIGHTFACE_AVAILABLE = True
     print("✓ InsightFace available for face analysis")
-except ImportError:
+except ImportError as e:
     INSIGHTFACE_AVAILABLE = False
-    print("⚠️ InsightFace not available - face swap will be disabled")
+    print(f"⚠️ InsightFace not available - face swap will be disabled: {e}")
+except Exception as e:
+    INSIGHTFACE_AVAILABLE = False
+    print(f"⚠️ InsightFace import error - face swap will be disabled: {e}")
 
 try:
     import gfpgan
     GFPGAN_AVAILABLE = True
     print("✓ GFPGAN available for face enhancement")
-except ImportError:
+except ImportError as e:
     GFPGAN_AVAILABLE = False
-    print("⚠️ GFPGAN not available - face enhancement will be disabled")
+    print(f"⚠️ GFPGAN not available - face enhancement will be disabled: {e}")
+except Exception as e:
+    GFPGAN_AVAILABLE = False
+    print(f"⚠️ GFPGAN import error - face enhancement will be disabled: {e}")
 
 # 模型路径配置
 MODELS_CONFIG = {
