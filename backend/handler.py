@@ -104,7 +104,7 @@ def call_face_swap_api(source_image_url: str, target_image_url: str) -> Optional
         # 1. 提交任务
         submit_payload = {
             "input": {
-                "process_type": "single_image",
+                "process_type": "single-image",
                 "source_file": source_image_url,
                 "target_file": target_image_url,
                 "options": {

@@ -70,7 +70,7 @@ FACE_SWAP_ENDPOINT=https://api.runpod.ai/v2/sbta9w9yx2cc1e
 ```python
 submit_payload = {
     "input": {
-        "process_type": "single_image",
+                 "process_type": "single-image",
         "source_file": source_image_url,  # 用户上传的参考图像
         "target_file": target_image_url,  # 生成的图像
         "options": {

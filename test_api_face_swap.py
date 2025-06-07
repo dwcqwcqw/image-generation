@@ -73,7 +73,7 @@ def test_face_swap_api():
     # 3. 构建API请求
     submit_payload = {
         "input": {
-            "process_type": "single_image",
+            "process_type": "single-image",
             "source_file": source_url,
             "target_file": target_url,
             "options": {
