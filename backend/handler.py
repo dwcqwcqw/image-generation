@@ -6,6 +6,7 @@ import traceback
 import uuid
 import sys  # 添加缺失的sys导入
 import re  # 添加regex模块用于长prompt处理
+import requests  # 添加requests用于API调用
 from datetime import datetime
 from typing import Optional, Dict, List, Tuple
 
@@ -31,6 +32,10 @@ import boto3
 from botocore.exceptions import ClientError
 from botocore.client import Config # 添加Config导入
 
+# RunPod API配置
+RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY", "")
+FACE_SWAP_ENDPOINT = os.getenv("FACE_SWAP_ENDPOINT", "https://api.runpod.ai/v2/sbta9w9yx2cc1e")
+
 # 🔧 兼容性修复：添加回退的torch.get_default_device函数
 if not hasattr(torch, 'get_default_device'):
     def get_default_device():
@@ -51,7 +56,198 @@ except ImportError:
     print("⚠️  Compel library not available - long prompt support limited")
 
 # =============================================================================
-# 内嵌换脸集成功能 - Face Swap Integration (Embedded)
+# 外部API换脸集成功能 - External Face Swap API Integration
+# =============================================================================
+
+def upload_image_to_temp_url(image: Image.Image) -> str:
+    """
+    将PIL图像上传到临时URL，用于API调用
+    
+    Args:
+        image: PIL.Image对象
+        
+    Returns:
+        str: 临时图像URL
+    """
+    try:
+        # 将图像转换为bytes
+        image_bytes = image_to_bytes(image)
+        
+        # 生成临时文件名
+        temp_filename = f"temp_{uuid.uuid4()}.jpg"
+        
+        # 上传到R2获得临时URL
+        temp_url = upload_to_r2(image_bytes, temp_filename)
+        print(f"✅ 图像已上传到临时URL: {temp_url}")
+        return temp_url
+        
+    except Exception as e:
+        print(f"❌ 上传临时图像失败: {e}")
+        raise e
+
+def call_face_swap_api(source_image_url: str, target_image_url: str) -> Optional[str]:
+    """
+    调用外部RunPod换脸API
+    
+    Args:
+        source_image_url: 源图像URL（用户上传的参考图像）
+        target_image_url: 目标图像URL（生成的图像）
+        
+    Returns:
+        Optional[str]: Base64编码的结果图像，失败时返回None
+    """
+    try:
+        print(f"🎭 开始调用换脸API...")
+        print(f"   源图像: {source_image_url}")
+        print(f"   目标图像: {target_image_url}")
+        
+        # 1. 提交任务
+        submit_payload = {
+            "input": {
+                "process_type": "single_image",
+                "source_file": source_image_url,
+                "target_file": target_image_url,
+                "options": {
+                    "mouth_mask": True,
+                    "use_face_enhancer": True
+                }
+            }
+        }
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {RUNPOD_API_KEY}"
+        }
+        
+        print("📤 提交换脸任务...")
+        submit_response = requests.post(
+            f"{FACE_SWAP_ENDPOINT}/run",
+            json=submit_payload,
+            headers=headers,
+            timeout=30
+        )
+        
+        if submit_response.status_code != 200:
+            print(f"❌ 任务提交失败: {submit_response.status_code} - {submit_response.text}")
+            return None
+            
+        submit_result = submit_response.json()
+        
+        if 'id' not in submit_result:
+            print(f"❌ 任务提交响应异常: {submit_result}")
+            return None
+            
+        job_id = submit_result['id']
+        print(f"✅ 任务已提交，ID: {job_id}")
+        
+        # 2. 轮询查询结果
+        max_retries = 60  # 最多等待5分钟 (60 * 5秒)
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            print(f"🔄 查询任务状态 ({retry_count + 1}/{max_retries})...")
+            
+            status_response = requests.get(
+                f"{FACE_SWAP_ENDPOINT}/status/{job_id}",
+                headers=headers,
+                timeout=10
+            )
+            
+            if status_response.status_code != 200:
+                print(f"❌ 状态查询失败: {status_response.status_code}")
+                retry_count += 1
+                time.sleep(5)
+                continue
+                
+            result = status_response.json()
+            status = result.get('status', 'UNKNOWN')
+            
+            print(f"📋 任务状态: {status}")
+            
+            if status == 'COMPLETED':
+                # 3. 处理成功结果
+                if 'output' in result and 'result' in result['output']:
+                    base64_image = result['output']['result']
+                    print("✅ 换脸API调用成功")
+                    return base64_image
+                else:
+                    print(f"❌ 结果格式异常: {result}")
+                    return None
+                    
+            elif status == 'FAILED':
+                error_msg = result.get('error', '未知错误')
+                print(f"❌ 换脸任务失败: {error_msg}")
+                return None
+                
+            elif status in ['IN_QUEUE', 'IN_PROGRESS']:
+                # 继续等待
+                retry_count += 1
+                time.sleep(5)
+                continue
+                
+            else:
+                print(f"❌ 未知任务状态: {status}")
+                retry_count += 1
+                time.sleep(5)
+                continue
+        
+        print(f"❌ 换脸任务超时，超过最大等待时间")
+        return None
+        
+    except requests.RequestException as e:
+        print(f"❌ API请求失败: {e}")
+        return None
+    except Exception as e:
+        print(f"❌ 换脸API调用异常: {e}")
+        print(f"❌ 详细错误: {traceback.format_exc()}")
+        return None
+
+def process_face_swap_api_pipeline(generated_image: Image.Image, source_image: Image.Image) -> Tuple[Image.Image, bool]:
+    """
+    使用外部API进行换脸处理的管道
+    
+    Args:
+        generated_image: PIL.Image - 生成的图像
+        source_image: PIL.Image - 源图像（用户上传的参考图像）
+        
+    Returns:
+        tuple: (处理后的图像(PIL.Image), 是否成功(bool))
+    """
+    try:
+        print("🎭 开始API换脸处理管道...")
+        
+        # 1. 上传图像到临时URL
+        print("📤 上传源图像...")
+        source_url = upload_image_to_temp_url(source_image)
+        
+        print("📤 上传目标图像...")
+        target_url = upload_image_to_temp_url(generated_image)
+        
+        # 2. 调用换脸API
+        result_base64 = call_face_swap_api(source_url, target_url)
+        
+        if result_base64 is None:
+            print("❌ API换脸失败，返回原始图像")
+            return generated_image, False
+        
+        # 3. 解码Base64结果
+        try:
+            image_data = base64.b64decode(result_base64)
+            result_image = Image.open(io.BytesIO(image_data))
+            print("✅ API换脸成功完成")
+            return result_image, True
+            
+        except Exception as decode_error:
+            print(f"❌ Base64解码失败: {decode_error}")
+            return generated_image, False
+            
+    except Exception as e:
+        print(f"❌ API换脸管道失败: {e}")
+        print(f"❌ 详细错误: {traceback.format_exc()}")
+        return generated_image, False
+
+# =============================================================================
+# 原有的本地换脸代码（保留作为备用，但主要使用API版本）
 # =============================================================================
 
 def add_faceswap_path():
@@ -1675,22 +1871,17 @@ def _process_realistic_with_face_swap(prompt: str, negative_prompt: str, source_
                     print(f"⚠️ 无法从结果中提取图像，跳过第 {i+1} 张")
                     continue
                 
-                # 执行换脸（如果可用）
-                if FACE_SWAP_AVAILABLE:
-                    face_swapped_image, swap_success = process_face_swap_pipeline(
-                        generated_image, source_image
-                    )
-                    
-                    if swap_success:
-                        print(f"✅ 第 {i+1} 张图像换脸成功")
-                    else:
-                        print(f"⚠️ 第 {i+1} 张图像换脸失败，使用原始生成图像")
-                        face_swapped_image = generated_image
-                        swap_success = False
+                # 执行换脸（使用外部API）
+                print(f"🎭 第 {i+1} 张图像：调用外部换脸API...")
+                face_swapped_image, swap_success = process_face_swap_api_pipeline(
+                    generated_image, source_image
+                )
+                
+                if swap_success:
+                    print(f"✅ 第 {i+1} 张图像API换脸成功")
                 else:
-                    print(f"⚠️ 换脸功能不可用，使用原始生成图像")
+                    print(f"⚠️ 第 {i+1} 张图像API换脸失败，使用原始生成图像")
                     face_swapped_image = generated_image
-                    swap_success = False
                 
                 # 上传处理后的图像
                 image_id = str(uuid.uuid4())
@@ -1709,9 +1900,9 @@ def _process_realistic_with_face_swap(prompt: str, negative_prompt: str, source_
                     'steps': steps,
                     'cfgScale': cfg_scale,
                     'createdAt': time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-                    'type': 'text-to-image-with-faceswap',  # 更新类型名称
+                    'type': 'text-to-image-with-api-faceswap',  # 更新类型名称
                     'baseModel': base_model,
-                    'faceSwapAvailable': FACE_SWAP_AVAILABLE,
+                    'faceSwapMethod': 'external_api',  # 标识使用外部API
                     'faceSwapSuccess': swap_success
                 }
                 
