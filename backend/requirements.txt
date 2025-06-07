@@ -30,6 +30,7 @@ opencv-python>=4.10.0
 # Face swap dependencies (will be installed if possible)
 insightface>=0.7.3
 onnxruntime-gpu>=1.16.0
+gfpgan>=1.3.8
 
 # Pin specific versions to avoid conflicts
 huggingface-hub>=0.20.0,<0.26.0

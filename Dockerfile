@@ -30,6 +30,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && ldconfig
 
+# Install additional CUDA libraries for ONNX Runtime GPU support
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libcublas-12-0 \
+    libcublaslt-12 \
+    libcudnn8 \
+    libcurand-12-0 \
+    libcusolver-12-0 \
+    libcusparse-12-0 \
+    libnvjitlink-12-0 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && ldconfig || echo "Some CUDA libraries may not be available, continuing..."
+
 # Update pip and install core packages first with smaller memory footprint
 RUN python -m pip install --upgrade pip setuptools wheel --no-cache-dir
 

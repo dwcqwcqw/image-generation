@@ -144,8 +144,29 @@ _face_enhancer = None
 def get_execution_providers():
     """获取执行provider列表，优先使用CUDA"""
     providers = []
+    
     if torch.cuda.is_available():
-        providers.append('CUDAExecutionProvider')
+        try:
+            # 尝试导入onnxruntime-gpu来检查CUDA provider是否可用
+            import onnxruntime as ort
+            available_providers = ort.get_available_providers()
+            
+            if 'CUDAExecutionProvider' in available_providers:
+                # 配置CUDA provider选项以避免库依赖问题
+                cuda_options = {
+                    'device_id': 0,
+                    'arena_extend_strategy': 'kNextPowerOfTwo',
+                    'gpu_mem_limit': 2 * 1024 * 1024 * 1024,  # 2GB limit
+                    'cudnn_conv_algo_search': 'EXHAUSTIVE',
+                    'do_copy_in_default_stream': True,
+                }
+                providers.append(('CUDAExecutionProvider', cuda_options))
+                print("✅ CUDA provider configured with options")
+            else:
+                print("⚠️  CUDA provider not available, using CPU")
+        except Exception as e:
+            print(f"⚠️  CUDA provider setup failed: {e}, falling back to CPU")
+    
     providers.append('CPUExecutionProvider')
     return providers
 
@@ -198,6 +219,69 @@ def init_face_swapper():
             _face_swapper = None
             
     return _face_swapper
+
+def init_face_enhancer():
+    """初始化GFPGAN脸部修复模型"""
+    global _face_enhancer
+    
+    if not GFPGAN_AVAILABLE:
+        return None
+        
+    if _face_enhancer is None:
+        try:
+            model_path = FACE_SWAP_MODELS_CONFIG["face_enhance"]
+            if not os.path.exists(model_path):
+                print(f"❌ GFPGAN model not found at: {model_path}")
+                return None
+            
+            from gfpgan import GFPGANer
+            _face_enhancer = GFPGANer(
+                model_path=model_path,
+                upscale=1,  # 不放大，只修复
+                arch='clean',
+                channel_multiplier=2,
+                bg_upsampler=None  # 不处理背景
+            )
+            print("✅ GFPGAN face enhancer initialized")
+            
+        except Exception as e:
+            print(f"❌ Failed to initialize GFPGAN: {e}")
+            _face_enhancer = None
+            
+    return _face_enhancer
+
+def enhance_face_quality(image):
+    """使用GFPGAN提升脸部质量"""
+    try:
+        face_enhancer = init_face_enhancer()
+        if face_enhancer is None:
+            print("⚠️  GFPGAN not available, skipping face enhancement")
+            return image
+        
+        # 转换PIL到numpy数组
+        if isinstance(image, Image.Image):
+            image_array = np.array(image)
+        else:
+            image_array = image
+        
+        # GFPGAN处理
+        print("🔧 Enhancing face quality with GFPGAN...")
+        _, _, enhanced_image = face_enhancer.enhance(
+            image_array, 
+            has_aligned=False, 
+            only_center_face=False, 
+            paste_back=True
+        )
+        
+        # 转换回PIL格式
+        if isinstance(image, Image.Image):
+            return Image.fromarray(enhanced_image)
+        else:
+            return enhanced_image
+            
+    except Exception as e:
+        print(f"❌ Face enhancement error: {e}")
+        return image
 
 def detect_faces(image):
     """检测图像中的人脸"""
@@ -305,8 +389,16 @@ def process_face_swap_pipeline(generated_image, source_image):
         if result_pil is None:
             print("❌ Result image conversion failed")
             return generated_image, False
-            
-        return result_pil, True
+        
+        # 🆕 添加GFPGAN脸部修复步骤
+        print("🔧 Starting face enhancement with GFPGAN...")
+        enhanced_result = enhance_face_quality(result_pil)
+        if enhanced_result is not None:
+            print("✅ Face enhancement completed")
+            return enhanced_result, True
+        else:
+            print("⚠️  Face enhancement failed, returning original swap result")
+            return result_pil, True
         
     except Exception as e:
         print(f"❌ Face swap pipeline error: {e}")
