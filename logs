@@ -1,0 +1,582 @@
+2025-06-06T15:16:49.644330940Z ==========
+2025-06-06T15:16:49.644337540Z == CUDA ==
+2025-06-06T15:16:49.644345740Z ==========
+2025-06-06T15:16:49.649297383Z CUDA Version 11.8.0
+2025-06-06T15:16:49.651022111Z Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+2025-06-06T15:16:49.653087957Z This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+2025-06-06T15:16:49.653093397Z By pulling and using the container, you accept the terms and conditions of this license:
+2025-06-06T15:16:49.653097948Z https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+2025-06-06T15:16:49.653107237Z A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+2025-06-06T15:16:49.694192889Z ==================================================
+2025-06-06T15:16:49.694198329Z   RUNPOD CONTAINER DEBUG STARTUP
+2025-06-06T15:16:49.694203219Z ==================================================
+2025-06-06T15:16:49.694211579Z ==================================================
+2025-06-06T15:16:49.694215849Z   SYSTEM ENVIRONMENT CHECK
+2025-06-06T15:16:49.694219959Z ==================================================
+2025-06-06T15:16:49.694224009Z Timestamp: 2025-06-06T15:16:49.694062
+2025-06-06T15:16:49.694228979Z Python version: 3.10.12 (main, Feb  4 2025, 14:57:36) [GCC 11.4.0]
+2025-06-06T15:16:49.694233689Z Python executable: /usr/bin/python
+2025-06-06T15:16:49.694242109Z ⚠️ 设置默认R2环境变量: ['CLOUDFLARE_R2_ACCESS_KEY', 'CLOUDFLARE_R2_SECRET_KEY', 'CLOUDFLARE_R2_BUCKET', 'CLOUDFLARE_R2_ENDPOINT', 'CLOUDFLARE_R2_PUBLIC_BUCKET_DOMAIN']
+2025-06-06T15:16:49.694246859Z 请在生产环境中设置正确的R2配置
+2025-06-06T15:16:49.697525324Z Memory usage:
+2025-06-06T15:16:49.697561054Z total        used        free      shared  buff/cache   available
+2025-06-06T15:16:49.697566384Z Mem:           755Gi        73Gi        61Gi       118Mi       620Gi       677Gi
+2025-06-06T15:16:49.697570744Z Swap:             0B          0B          0B
+2025-06-06T15:16:49.697575364Z Exit code: 0
+2025-06-06T15:16:49.706123062Z Disk usage:
+2025-06-06T15:16:49.706137882Z Filesystem                           Size  Used Avail Use% Mounted on
+2025-06-06T15:16:49.706142562Z overlay                              5.0G   15M  5.0G   1% /
+2025-06-06T15:16:49.706146702Z tmpfs                                 64M     0   64M   0% /dev
+2025-06-06T15:16:49.706150992Z mfs#eur-is-1.runpod.net:9421         615T  299T  316T  49% /runpod-volume
+2025-06-06T15:16:49.706155312Z shm                                   44G     0   44G   0% /dev/shm
+2025-06-06T15:16:49.706159892Z /dev/mapper/ubuntu--vg-runpod--data  7.2T  4.4T  2.8T  62% /etc/hosts
+2025-06-06T15:16:49.706164002Z /dev/mapper/ubuntu--vg-ubuntu--lv     98G   26G   67G  28% /usr/bin/nvidia-smi
+2025-06-06T15:16:49.706168132Z tmpfs                                378G     0  378G   0% /sys/fs/cgroup
+2025-06-06T15:16:49.706172242Z tmpfs                                378G   12K  378G   1% /proc/driver/nvidia
+2025-06-06T15:16:49.706176472Z tmpfs                                378G  4.0K  378G   1% /etc/nvidia/nvidia-application-profiles-rc.d
+2025-06-06T15:16:49.706181452Z tmpfs                                 76G   27M   76G   1% /run/nvidia-persistenced/socket
+2025-06-06T15:16:49.706186152Z tmpfs                                378G     0  378G   0% /proc/acpi
+2025-06-06T15:16:49.706190212Z tmpfs                                378G     0  378G   0% /proc/scsi
+2025-06-06T15:16:49.706194362Z tmpfs                                378G     0  378G   0% /sys/firmware
+2025-06-06T15:16:49.706198792Z tmpfs                                378G     0  378G   0% /sys/devices/virtual/powercap
+2025-06-06T15:16:49.706203012Z Exit code: 0
+2025-06-06T15:16:49.900626484Z GPU status:
+2025-06-06T15:16:49.900696994Z Fri Jun  6 15:16:49 2025
+2025-06-06T15:16:49.900702984Z +-----------------------------------------------------------------------------------------+
+2025-06-06T15:16:49.900739474Z | NVIDIA-SMI 565.57.01              Driver Version: 565.57.01      CUDA Version: 12.7     |
+2025-06-06T15:16:49.900744834Z |-----------------------------------------+------------------------+----------------------+
+2025-06-06T15:16:49.900749194Z | GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+2025-06-06T15:16:49.900753354Z | Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+2025-06-06T15:16:49.900757474Z |                                         |                        |               MIG M. |
+2025-06-06T15:16:49.900761564Z |=========================================+========================+======================|
+2025-06-06T15:16:49.900765644Z |   0  NVIDIA L40                     On  |   00000000:61:00.0 Off |                    0 |
+2025-06-06T15:16:49.900769844Z | N/A   35C    P8             36W /  300W |       1MiB /  46068MiB |      0%      Default |
+2025-06-06T15:16:49.900773944Z |                                         |                        |                  N/A |
+2025-06-06T15:16:49.900778314Z +-----------------------------------------+------------------------+----------------------+
+2025-06-06T15:16:49.900786664Z +-----------------------------------------------------------------------------------------+
+2025-06-06T15:16:49.900790784Z | Processes:                                                                              |
+2025-06-06T15:16:49.900795394Z |  GPU   GI   CI        PID   Type   Process name                              GPU Memory |
+2025-06-06T15:16:49.900799684Z |        ID   ID                                                               Usage      |
+2025-06-06T15:16:49.900803864Z |=========================================================================================|
+2025-06-06T15:16:49.900808124Z |  No running processes found                                                             |
+2025-06-06T15:16:49.900812404Z +-----------------------------------------------------------------------------------------+
+2025-06-06T15:16:49.900817154Z Exit code: 0
+2025-06-06T15:16:49.900826034Z Environment variables:
+2025-06-06T15:16:49.900831174Z   CLOUDFLARE_R2_ACCESS_KEY=5885b29961ce9fc2b593139d9de52f81
+2025-06-06T15:16:49.900836364Z   CLOUDFLARE_R2_BUCKET=image-generation
+2025-06-06T15:16:49.900841084Z   CLOUDFLARE_R2_ENDPOINT=https://c7c141ce43d175e60601edc46d904553.r2.cloudflarestorage.com
+2025-06-06T15:16:49.900847524Z   CLOUDFLARE_R2_PUBLIC_BUCKET_DOMAIN=pub-5a18b069cd06445889010bf8c29132d6.r2.dev
+2025-06-06T15:16:49.900852454Z   CLOUDFLARE_R2_SECRET_KEY=a4415c670e669229db451ea7b38544c0a2e44dbe630f1f35f99f28a27593d181
+2025-06-06T15:16:49.900856714Z   CUDA_HOME=/usr/local/cuda
+2025-06-06T15:16:49.900860804Z   CUDA_VERSION=11.8.0
+2025-06-06T15:16:49.900864884Z   CUDA_VISIBLE_DEVICES=0
+2025-06-06T15:16:49.900869174Z   NVIDIA_REQUIRE_CUDA=cuda>=11.8 brand=tesla,driver>=470,driver<471 brand=unknown,driver>=470,driver<471 brand=nvidia,driver>=470,driver<471 brand=nvidiartx,driver>=470,driver<471 brand=geforce,driver>=470,driver<471 brand=geforcertx,driver>=470,driver<471 brand=quadro,driver>=470,driver<471 brand=quadrortx,driver>=470,driver<471 brand=titan,driver>=470,driver<471 brand=titanrtx,driver>=470,driver<471
+2025-06-06T15:16:49.900874614Z   NV_CUDA_COMPAT_PACKAGE=cuda-compat-11-8
+2025-06-06T15:16:49.900878734Z   NV_CUDA_CUDART_DEV_VERSION=11.8.89-1
+2025-06-06T15:16:49.900882854Z   NV_CUDA_CUDART_VERSION=11.8.89-1
+2025-06-06T15:16:49.900887544Z   NV_CUDA_LIB_VERSION=11.8.0-1
+2025-06-06T15:16:49.900891704Z   NV_CUDA_NSIGHT_COMPUTE_DEV_PACKAGE=cuda-nsight-compute-11-8=11.8.0-1
+2025-06-06T15:16:49.900896544Z   NV_CUDA_NSIGHT_COMPUTE_VERSION=11.8.0-1
+2025-06-06T15:16:49.900900784Z   RUNPOD_AI_API_ID=kl109qbw3hmsez
+2025-06-06T15:16:49.900905384Z   RUNPOD_AI_API_KEY=608VHUR9P8TN3MMLKFDG9PFTBPEYP23P70GME0U8
+2025-06-06T15:16:49.900909674Z   RUNPOD_CPU_COUNT=8
+2025-06-06T15:16:49.900913894Z   RUNPOD_DC_ID=EUR-IS-1
+2025-06-06T15:16:49.900918124Z   RUNPOD_DEBUG_LEVEL=INFO
+2025-06-06T15:16:49.900922474Z   RUNPOD_ENDPOINT_ID=kl109qbw3hmsez
+2025-06-06T15:16:49.900934374Z   RUNPOD_ENDPOINT_SECRET=608VHUR9P8TN3MMLKFDG9PFTBPEYP23P70GME0U8
+2025-06-06T15:16:49.900938884Z   RUNPOD_GPU_COUNT=1
+2025-06-06T15:16:49.900942964Z   RUNPOD_GPU_NAME=NVIDIA+L40
+2025-06-06T15:16:49.900947044Z   RUNPOD_GPU_SIZE=ADA_48_PRO
+2025-06-06T15:16:49.900951114Z   RUNPOD_MEM_GB=94
+2025-06-06T15:16:49.900955294Z   RUNPOD_PING_INTERVAL=4000
+2025-06-06T15:16:49.900959384Z   RUNPOD_POD_HOSTNAME=ratfcrhrpgvgs0-6441131c
+2025-06-06T15:16:49.900971324Z   RUNPOD_POD_ID=ratfcrhrpgvgs0
+2025-06-06T15:16:49.900976194Z   RUNPOD_VOLUME_ID=tbxkus09km
+2025-06-06T15:16:49.900980364Z   RUNPOD_WEBHOOK_GET_JOB=https://api.runpod.ai/v2/kl109qbw3hmsez/job-take/ratfcrhrpgvgs0?gpu=NVIDIA+L40
+2025-06-06T15:16:49.900985154Z   RUNPOD_WEBHOOK_PING=https://api.runpod.ai/v2/kl109qbw3hmsez/ping/ratfcrhrpgvgs0?gpu=NVIDIA+L40
+2025-06-06T15:16:49.900989334Z   RUNPOD_WEBHOOK_POST_OUTPUT=https://api.runpod.ai/v2/kl109qbw3hmsez/job-done/ratfcrhrpgvgs0/$ID?gpu=NVIDIA+L40
+2025-06-06T15:16:49.900993574Z   RUNPOD_WEBHOOK_POST_STREAM=https://api.runpod.ai/v2/kl109qbw3hmsez/job-stream/ratfcrhrpgvgs0/$ID?gpu=NVIDIA+L40
+2025-06-06T15:16:49.901002274Z ==================================================
+2025-06-06T15:16:49.901006504Z   PYTHON PACKAGES CHECK
+2025-06-06T15:16:49.901010684Z ==================================================
+2025-06-06T15:16:50.853875863Z ✓ torch: 2.7.1+cu126
+2025-06-06T15:16:51.630613274Z ✓ torchvision: 0.22.1+cu126
+2025-06-06T15:16:51.630675004Z ✓ numpy: 1.26.4
+2025-06-06T15:16:51.780350810Z ✓ diffusers: 0.31.0
+2025-06-06T15:16:51.799126653Z The cache for model files in Transformers v4.22.0 has been updated. Migrating your old cache. This is a one-time only operation. You can interrupt this and resume the migration later on by calling `transformers.utils.move_cache()`.
+2025-06-06T15:16:51.800048232Z 
+0it [00:00, ?it/s]
+0it [00:00, ?it/s]
+2025-06-06T15:16:51.811022256Z ✓ transformers: 4.44.2
+2025-06-06T15:16:51.811050246Z ✓ PIL: 11.2.1
+2025-06-06T15:16:51.842314001Z ✓ boto3: 1.38.31
+2025-06-06T15:16:53.317185795Z ✓ runpod: 1.7.10
+2025-06-06T15:16:53.317240775Z ==================================================
+2025-06-06T15:16:53.317245525Z   PYTORCH CUDA CHECK
+2025-06-06T15:16:53.317249765Z ==================================================
+2025-06-06T15:16:53.317254045Z PyTorch version: 2.7.1+cu126
+2025-06-06T15:16:53.394565725Z CUDA available: True
+2025-06-06T15:16:53.394610335Z CUDA version: 12.6
+2025-06-06T15:16:53.395466763Z cuDNN version: 90501
+2025-06-06T15:16:53.409665603Z GPU count: 1
+2025-06-06T15:16:53.411884410Z GPU 0: NVIDIA L40 (44.4GB)
+2025-06-06T15:16:53.646445645Z ✓ CUDA tensor test passed: tensor([1., 2.], device='cuda:0')
+2025-06-06T15:16:53.646740045Z ==================================================
+2025-06-06T15:16:53.646745735Z   MODEL PATHS CHECK
+2025-06-06T15:16:53.646751195Z ==================================================
+2025-06-06T15:16:53.648260792Z ✓ /runpod-volume (directory, 9 items)
+2025-06-06T15:16:53.648270703Z     - .ipynb_checkpoints
+2025-06-06T15:16:53.648275772Z     - video
+2025-06-06T15:16:53.648280252Z     - ipadapter
+2025-06-06T15:16:53.648284512Z     - cartoon
+2025-06-06T15:16:53.648288922Z     - lora
+2025-06-06T15:16:53.648293992Z     ... and 4 more
+2025-06-06T15:16:53.649541211Z ✓ /runpod-volume/flux_base (directory, 15 items)
+2025-06-06T15:16:53.650743669Z ✓ /runpod-volume/lora (directory, 14 items)
+2025-06-06T15:16:53.651986207Z ✓ /runpod-volume/lora/flux_nsfw (directory, 7 items)
+2025-06-06T15:16:53.651996647Z     - flux_lustly-ai_v1.safetensors
+2025-06-06T15:16:53.652001507Z     - lustly_dev.png
+2025-06-06T15:16:53.652005977Z     - lustly_schnell.png
+2025-06-06T15:16:53.652010467Z     - .gitattributes
+2025-06-06T15:16:53.652014877Z     - README.md
+2025-06-06T15:16:53.652019767Z     ... and 2 more
+2025-06-06T15:16:53.652918226Z ✓ /runpod-volume/cartoon (directory, 3 items)
+2025-06-06T15:16:53.652927796Z     - 130.safetensors
+2025-06-06T15:16:53.652932126Z     - Anime_NSFW.safetensors
+2025-06-06T15:16:53.652936846Z     - lora
+2025-06-06T15:16:53.653963004Z ✓ /runpod-volume/cartoon/lora (directory, 8 items)
+2025-06-06T15:16:53.653973644Z     - Gayporn.safetensors
+2025-06-06T15:16:53.653999784Z     - Blowjob_Handjob.safetensors
+2025-06-06T15:16:53.654004744Z     - Furry.safetensors
+2025-06-06T15:16:53.654009254Z     - Sex_slave.safetensors
+2025-06-06T15:16:53.654013754Z     - pet_play.safetensors
+2025-06-06T15:16:53.654018194Z     ... and 3 more
+2025-06-06T15:16:53.654027054Z ==================================================
+2025-06-06T15:16:53.654031654Z   CRITICAL IMPORTS TEST
+2025-06-06T15:16:53.654036104Z ==================================================
+2025-06-06T15:16:53.654040544Z Testing diffusers...
+2025-06-06T15:16:54.037133187Z ✓ Diffusers imports successful
+2025-06-06T15:16:54.037174887Z Testing PIL...
+2025-06-06T15:16:54.037180527Z ✓ PIL import successful
+2025-06-06T15:16:54.037184907Z Testing boto3...
+2025-06-06T15:16:54.037190067Z ✓ boto3 import successful
+2025-06-06T15:16:54.037194417Z Testing runpod...
+2025-06-06T15:16:54.037198957Z ✓ runpod import successful
+2025-06-06T15:16:54.037203137Z Testing compel...
+2025-06-06T15:16:54.054522572Z ✓ compel import successful
+2025-06-06T15:16:54.054582102Z ==================================================
+2025-06-06T15:16:54.054587902Z   STARTING MAIN HANDLER
+2025-06-06T15:16:54.054593162Z ==================================================
+2025-06-06T15:16:54.054597662Z All checks completed. Starting handler.py...
+2025-06-06T15:16:54.185575035Z ✓ 添加PuLID目录到路径: /app/PuLID
+2025-06-06T15:16:54.185620175Z ✓ 添加PuLID目录到路径: /app/backend/pulid
+2025-06-06T15:16:54.185626335Z 🔍 PuLID导入诊断信息:
+2025-06-06T15:16:54.185631175Z    - Python PATH前3项: ['/app/backend', '/app/backend', '/app']
+2025-06-06T15:16:54.185674305Z    - 当前工作目录: /app
+2025-06-06T15:16:54.185679205Z    - 可用的Python路径: ['/app/backend', '/app/backend', '/app', '/app/PuLID', '/usr/lib/python310.zip', '/usr/lib/python3.10', '/usr/lib/python3.10/lib-dynload', '/usr/local/lib/python3.10/dist-packages', '/usr/lib/python3/dist-packages', '/tmp/tmpovknmf1y', '/app/backend', '/app', '/app/PuLID', '/app/backend/pulid']
+2025-06-06T15:16:54.185685155Z    - 目录内容: ['backend', 'pulid', 'PuLID', '=1.16.0', 'deploy_setup.sh', 'requirements.txt']
+2025-06-06T15:16:54.204304568Z ✓ CV2库可用，支持完整的人脸识别功能
+2025-06-06T15:16:54.778035449Z font_manager.py     :1639 2025-06-06 15:16:54,777 generated new fontManager
+2025-06-06T15:16:54.906029546Z ✓ InsightFace库可用，支持高级人脸检测
+2025-06-06T15:16:54.906060726Z 🧬 初始化InsightFace应用...
+2025-06-06T15:16:54.906067526Z ✓ 启用CUDA和CPU providers
+2025-06-06T15:16:54.906072276Z download_path: /root/.insightface/models/buffalo_l
+2025-06-06T15:16:54.906172946Z Downloading /root/.insightface/models/buffalo_l.zip from https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip...
+2025-06-06T15:17:00.175585721Z 
+  0%|          | 0/281857 [00:00<?, ?KB/s]
+  0%|          | 193/281857 [00:00<02:28, 1895.90KB/s]
+  0%|          | 1219/281857 [00:00<00:41, 6779.25KB/s]
+  2%|▏         | 5421/281857 [00:00<00:12, 22803.01KB/s]
+  4%|▍         | 11496/281857 [00:00<00:07, 37113.70KB/s]
+  7%|▋         | 19125/281857 [00:00<00:05, 46047.96KB/s]
+ 10%|▉         | 27303/281857 [00:00<00:04, 57280.34KB/s]
+ 13%|█▎        | 37626/281857 [00:00<00:03, 71500.46KB/s]
+ 17%|█▋        | 48265/281857 [00:00<00:02, 81927.52KB/s]
+ 21%|██        | 59489/281857 [00:00<00:02, 91141.70KB/s]
+ 25%|██▍       | 70122/281857 [00:01<00:02, 95719.32KB/s]
+ 29%|██▊       | 80885/281857 [00:01<00:02, 99313.44KB/s]
+ 32%|███▏      | 90867/281857 [00:01<00:02, 90582.70KB/s]
+ 36%|███▌      | 100104/281857 [00:01<00:02, 84795.58KB/s]
+ 39%|███▊      | 108757/281857 [00:01<00:02, 82695.72KB/s]
+ 42%|████▏     | 117143/281857 [00:01<00:02, 81504.50KB/s]
+ 44%|████▍     | 125369/281857 [00:01<00:01, 80293.61KB/s]
+ 47%|████▋     | 133447/281857 [00:01<00:01, 79703.07KB/s]
+ 50%|█████     | 141448/281857 [00:01<00:01, 79344.21KB/s]
+ 53%|█████▎    | 149448/281857 [00:02<00:01, 79510.32KB/s]
+ 56%|█████▌    | 157414/281857 [00:02<00:01, 70605.52KB/s]
+ 58%|█████▊    | 164655/281857 [00:02<00:01, 69814.72KB/s]
+ 61%|██████    | 171758/281857 [00:02<00:01, 65686.32KB/s]
+ 63%|██████▎   | 178438/281857 [00:02<00:01, 63244.42KB/s]
+ 66%|██████▌   | 184840/281857 [00:02<00:01, 61131.69KB/s]
+ 68%|██████▊   | 191004/281857 [00:02<00:01, 60090.43KB/s]
+ 70%|██████▉   | 197043/281857 [00:02<00:01, 59454.23KB/s]
+ 72%|███████▏  | 203006/281857 [00:02<00:01, 59493.90KB/s]
+ 74%|███████▍  | 208968/281857 [00:03<00:01, 59387.72KB/s]
+ 76%|███████▌  | 214915/281857 [00:03<00:01, 59033.92KB/s]
+ 78%|███████▊  | 220829/281857 [00:03<00:01, 58911.35KB/s]
+ 80%|████████  | 226815/281857 [00:03<00:00, 59186.27KB/s]
+ 83%|████████▎ | 232781/281857 [00:03<00:00, 59323.52KB/s]
+ 85%|████████▍ | 238838/281857 [00:03<00:00, 59687.82KB/s]
+ 87%|████████▋ | 244831/281857 [00:03<00:00, 59759.22KB/s]
+ 89%|████████▉ | 250857/281857 [00:03<00:00, 59906.39KB/s]
+ 91%|█████████ | 256849/281857 [00:03<00:00, 53304.50KB/s]
+ 93%|█████████▎| 262314/281857 [00:04<00:00, 47205.12KB/s]
+ 95%|█████████▍| 267234/281857 [00:04<00:00, 46217.74KB/s]
+ 96%|█████████▋| 271989/281857 [00:04<00:00, 45680.15KB/s]
+ 98%|█████████▊| 276646/281857 [00:04<00:00, 45325.92KB/s]
+100%|█████████▉| 281238/281857 [00:04<00:00, 44967.53KB/s]
+100%|██████████| 281857/281857 [00:04<00:00, 62827.19KB/s]
+2025-06-06T15:17:01.945051064Z Applied providers: ['CUDAExecutionProvider', 'CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}, 'CUDAExecutionProvider': {'sdpa_kernel': '0', 'use_tf32': '1', 'fuse_conv_bias': '0', 'prefer_nhwc': '0', 'tunable_op_max_tuning_duration_ms': '0', 'enable_skip_layer_norm_strict_mode': '0', 'tunable_op_tuning_enable': '0', 'tunable_op_enable': '0', 'use_ep_level_unified_stream': '0', 'device_id': '0', 'has_user_compute_stream': '0', 'gpu_external_empty_cache': '0', 'cudnn_conv_algo_search': 'EXHAUSTIVE', 'cudnn_conv1d_pad_to_nc1d': '0', 'gpu_mem_limit': '18446744073709551615', 'gpu_external_alloc': '0', 'gpu_external_free': '0', 'arena_extend_strategy': 'kNextPowerOfTwo', 'do_copy_in_default_stream': '1', 'enable_cuda_graph': '0', 'user_compute_stream': '0', 'cudnn_conv_use_max_workspace': '1'}}
+2025-06-06T15:17:02.051554172Z find model: /root/.insightface/models/buffalo_l/1k3d68.onnx landmark_3d_68 ['None', 3, 192, 192] 0.0 1.0
+2025-06-06T15:17:02.070040526Z Applied providers: ['CUDAExecutionProvider', 'CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}, 'CUDAExecutionProvider': {'sdpa_kernel': '0', 'use_tf32': '1', 'fuse_conv_bias': '0', 'prefer_nhwc': '0', 'tunable_op_max_tuning_duration_ms': '0', 'enable_skip_layer_norm_strict_mode': '0', 'tunable_op_tuning_enable': '0', 'tunable_op_enable': '0', 'use_ep_level_unified_stream': '0', 'device_id': '0', 'has_user_compute_stream': '0', 'gpu_external_empty_cache': '0', 'cudnn_conv_algo_search': 'EXHAUSTIVE', 'cudnn_conv1d_pad_to_nc1d': '0', 'gpu_mem_limit': '18446744073709551615', 'gpu_external_alloc': '0', 'gpu_external_free': '0', 'arena_extend_strategy': 'kNextPowerOfTwo', 'do_copy_in_default_stream': '1', 'enable_cuda_graph': '0', 'user_compute_stream': '0', 'cudnn_conv_use_max_workspace': '1'}}
+2025-06-06T15:17:02.072320613Z find model: /root/.insightface/models/buffalo_l/2d106det.onnx landmark_2d_106 ['None', 3, 192, 192] 0.0 1.0
+2025-06-06T15:17:02.092163674Z Applied providers: ['CUDAExecutionProvider', 'CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}, 'CUDAExecutionProvider': {'sdpa_kernel': '0', 'use_tf32': '1', 'fuse_conv_bias': '0', 'prefer_nhwc': '0', 'tunable_op_max_tuning_duration_ms': '0', 'enable_skip_layer_norm_strict_mode': '0', 'tunable_op_tuning_enable': '0', 'tunable_op_enable': '0', 'use_ep_level_unified_stream': '0', 'device_id': '0', 'has_user_compute_stream': '0', 'gpu_external_empty_cache': '0', 'cudnn_conv_algo_search': 'EXHAUSTIVE', 'cudnn_conv1d_pad_to_nc1d': '0', 'gpu_mem_limit': '18446744073709551615', 'gpu_external_alloc': '0', 'gpu_external_free': '0', 'arena_extend_strategy': 'kNextPowerOfTwo', 'do_copy_in_default_stream': '1', 'enable_cuda_graph': '0', 'user_compute_stream': '0', 'cudnn_conv_use_max_workspace': '1'}}
+2025-06-06T15:17:02.092756793Z find model: /root/.insightface/models/buffalo_l/det_10g.onnx detection [1, 3, '?', '?'] 127.5 128.0
+2025-06-06T15:17:02.121057283Z Applied providers: ['CUDAExecutionProvider', 'CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}, 'CUDAExecutionProvider': {'sdpa_kernel': '0', 'use_tf32': '1', 'fuse_conv_bias': '0', 'prefer_nhwc': '0', 'tunable_op_max_tuning_duration_ms': '0', 'enable_skip_layer_norm_strict_mode': '0', 'tunable_op_tuning_enable': '0', 'tunable_op_enable': '0', 'use_ep_level_unified_stream': '0', 'device_id': '0', 'has_user_compute_stream': '0', 'gpu_external_empty_cache': '0', 'cudnn_conv_algo_search': 'EXHAUSTIVE', 'cudnn_conv1d_pad_to_nc1d': '0', 'gpu_mem_limit': '18446744073709551615', 'gpu_external_alloc': '0', 'gpu_external_free': '0', 'arena_extend_strategy': 'kNextPowerOfTwo', 'do_copy_in_default_stream': '1', 'enable_cuda_graph': '0', 'user_compute_stream': '0', 'cudnn_conv_use_max_workspace': '1'}}
+2025-06-06T15:17:02.123311940Z find model: /root/.insightface/models/buffalo_l/genderage.onnx genderage ['None', 3, 96, 96] 0.0 1.0
+2025-06-06T15:17:02.309138884Z Applied providers: ['CUDAExecutionProvider', 'CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}, 'CUDAExecutionProvider': {'sdpa_kernel': '0', 'use_tf32': '1', 'fuse_conv_bias': '0', 'prefer_nhwc': '0', 'tunable_op_max_tuning_duration_ms': '0', 'enable_skip_layer_norm_strict_mode': '0', 'tunable_op_tuning_enable': '0', 'tunable_op_enable': '0', 'use_ep_level_unified_stream': '0', 'device_id': '0', 'has_user_compute_stream': '0', 'gpu_external_empty_cache': '0', 'cudnn_conv_algo_search': 'EXHAUSTIVE', 'cudnn_conv1d_pad_to_nc1d': '0', 'gpu_mem_limit': '18446744073709551615', 'gpu_external_alloc': '0', 'gpu_external_free': '0', 'arena_extend_strategy': 'kNextPowerOfTwo', 'do_copy_in_default_stream': '1', 'enable_cuda_graph': '0', 'user_compute_stream': '0', 'cudnn_conv_use_max_workspace': '1'}}
+2025-06-06T15:17:02.438290130Z find model: /root/.insightface/models/buffalo_l/w600k_r50.onnx recognition ['None', 3, 112, 112] 127.5 127.5
+2025-06-06T15:17:02.438334950Z set det-size: (640, 640)
+2025-06-06T15:17:02.438404220Z ✅ InsightFace应用初始化成功，支持人脸检测、年龄/性别估计、embedding提取
+2025-06-06T15:17:02.438434680Z    使用providers: ['CUDAExecutionProvider', 'CPUExecutionProvider']
+2025-06-06T15:17:02.438440570Z    上下文ID: 0
+2025-06-06T15:17:02.438445500Z    检测尺寸: 640x640
+2025-06-06T15:17:02.438449920Z 🔄 尝试导入本地backend/pulid实现...
+2025-06-06T15:17:02.445534570Z ✓ 本地PuLID模块初始化成功
+2025-06-06T15:17:02.445560330Z ✅ 成功导入本地FluxPuLIDPipeline，人脸一致性功能可用
+2025-06-06T15:17:02.445566860Z ✓ Compel library loaded for long prompt support
+2025-06-06T15:17:02.445571810Z === Starting AI Image Generation Backend ===
+2025-06-06T15:17:02.445576330Z Python version: 3.10.12 (main, Feb  4 2025, 14:57:36) [GCC 11.4.0]
+2025-06-06T15:17:02.445580700Z PyTorch version: 2.7.1+cu126
+2025-06-06T15:17:02.445585750Z CUDA available: True
+2025-06-06T15:17:02.445590770Z CUDA version: 12.6
+2025-06-06T15:17:02.445595040Z GPU count: 1
+2025-06-06T15:17:02.445604340Z GPU 0: NVIDIA L40
+2025-06-06T15:17:02.516360059Z ✓ R2 client initialized successfully
+2025-06-06T15:17:02.516463779Z ✓ Handler imported successfully
+2025-06-06T15:17:02.516490119Z Loading models...
+2025-06-06T15:17:02.516495999Z ✓ 模型系统初始化完成，将按需加载模型
+2025-06-06T15:17:02.516501128Z 📝 支持的模型类型: ['realistic', 'anime']
+2025-06-06T15:17:02.516506158Z 🎯 系统就绪，等待模型加载请求...
+2025-06-06T15:17:02.516510408Z ✓ Models loaded successfully
+2025-06-06T15:17:02.516515368Z Starting RunPod serverless worker...
+2025-06-06T15:17:02.516580908Z --- Starting Serverless Worker |  Version 1.7.10 ---
+2025-06-06T15:17:03.258744698Z {"requestId": null, "message": "Jobs in queue: 1", "level": "INFO"}
+2025-06-06T15:17:03.258793368Z {"requestId": null, "message": "Jobs in progress: 1", "level": "INFO"}
+2025-06-06T15:17:03.258798698Z {"requestId": "sync-1e779211-c036-44cb-9785-0758a525426a-u1", "message": "Started.", "level": "INFO"}
+2025-06-06T15:17:03.258804218Z 📝 Processing image-to-image request...
+2025-06-06T15:17:03.258809328Z 📝 Handler自动切换模型: None -> realistic
+2025-06-06T15:17:03.258824188Z 🧹 GPU内存已清理
+2025-06-06T15:17:03.258829908Z 🎯 Loading 真人风格 model...
+2025-06-06T15:17:03.258834248Z ⚠️  禁用FLUX device mapping以避免模型切换冲突
+2025-06-06T15:17:04.715833438Z 
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]
+Loading pipeline components...:  14%|█▍        | 1/7 [00:00<00:05,  1.06it/s]
+Loading pipeline components...:  29%|██▊       | 2/7 [00:01<00:03,  1.51it/s]
+2025-06-06T15:17:15.449611790Z 
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s][A
+2025-06-06T15:17:24.580747650Z 
+Loading checkpoint shards:  50%|█████     | 1/2 [00:10<00:10, 10.73s/it][A
+2025-06-06T15:17:24.580844650Z 
+Loading checkpoint shards: 100%|██████████| 2/2 [00:19<00:00,  9.79s/it][A
+Loading checkpoint shards: 100%|██████████| 2/2 [00:19<00:00,  9.93s/it]
+2025-06-06T15:18:13.077412486Z 
+Loading pipeline components...:  43%|████▎     | 3/7 [00:21<00:37,  9.45s/it]
+Loading pipeline components...:  57%|█████▋    | 4/7 [01:09<01:14, 24.86s/it]You set `add_prefix_space`. The tokenizer needs to be converted from the slow tokenizers
+2025-06-06T15:18:13.298938500Z 
+Loading pipeline components...:  86%|████████▌ | 6/7 [01:09<00:11, 11.73s/it]
+Loading pipeline components...: 100%|██████████| 7/7 [01:10<00:00, 10.00s/it]
+2025-06-06T15:18:18.788284031Z ✅ Attention slicing enabled
+2025-06-06T15:18:18.788342821Z ⚠️  跳过FLUX CPU offload以避免device冲突
+2025-06-06T15:18:18.788350611Z ✅ VAE optimizations enabled
+2025-06-06T15:18:18.788355681Z 🔗 Creating FLUX image-to-image pipeline (sharing components)...
+2025-06-06T15:18:18.799952514Z ℹ️  基础模型加载完成，无默认LoRA，等待用户选择LoRA
+2025-06-06T15:18:18.799986874Z 🎉 真人风格 model loaded successfully in 75.54s!
+2025-06-06T15:18:18.799992984Z 🔥 Warming up model with test inference...
+2025-06-06T15:18:19.272133180Z 
+  0%|          | 0/1 [00:00<?, ?it/s]
+100%|██████████| 1/1 [00:00<00:00,  3.81it/s]
+100%|██████████| 1/1 [00:00<00:00,  3.81it/s]
+2025-06-06T15:18:19.373359755Z ✅ Model warmup completed in 0.57s
+2025-06-06T15:18:19.373417925Z 🚀 真人风格 system ready for image generation!
+2025-06-06T15:18:19.373424185Z Auto-loading LoRA config for generation: flux_nsfw
+2025-06-06T15:18:19.373428605Z 🔍 搜索LoRA文件: flux_nsfw (模型: realistic)
+2025-06-06T15:18:19.373845195Z   📁 搜索目录: /runpod-volume/lora
+2025-06-06T15:18:19.374300664Z   ✅ 找到文件: /runpod-volume/lora/flux_nsfw
+2025-06-06T15:18:19.374339774Z 🔄 切换LoRA到: flux_nsfw
+2025-06-06T15:18:19.374347894Z 📁 文件路径: /runpod-volume/lora/flux_nsfw
+2025-06-06T15:18:19.382061873Z 🧹 已卸载之前的LoRA (txt2img)
+2025-06-06T15:18:22.779851771Z ✅ 新LoRA加载成功 (txt2img)
+2025-06-06T15:18:24.037682825Z ✅ img2img管道LoRA同步成功
+2025-06-06T15:18:24.037747514Z 🎉 成功切换到LoRA: flux_nsfw
+2025-06-06T15:18:24.037753845Z ✅ 图生图模型已就绪: realistic
+2025-06-06T15:18:24.037758274Z 📝 图生图处理 - 提示词: 708 字符
+2025-06-06T15:18:24.037762785Z 📐 图像尺寸: 512x512, 步数: 25, CFG: 10
+2025-06-06T15:18:24.037767125Z 🎨 尝试切换LoRA: flux_nsfw
+2025-06-06T15:18:24.037772225Z 🔍 搜索LoRA文件: flux_nsfw (模型: realistic)
+2025-06-06T15:18:24.038175774Z   📁 搜索目录: /runpod-volume/lora
+2025-06-06T15:18:24.038543264Z   ✅ 找到文件: /runpod-volume/lora/flux_nsfw
+2025-06-06T15:18:24.038581643Z ℹ️ LoRA flux_nsfw 已经加载 - 跳过切换
+2025-06-06T15:18:24.038612793Z ✅ LoRA切换成功: flux_nsfw
+2025-06-06T15:18:24.048943999Z ✅ 图像尺寸调整为: 512x512
+2025-06-06T15:18:24.048979539Z 🎯 当前模型类型: flux
+2025-06-06T15:18:24.048985509Z 🔍 PuLID条件检查:
+2025-06-06T15:18:24.048990649Z   - base_model: realistic (需要: realistic)
+2025-06-06T15:18:24.048996079Z   - use_face_id: True
+2025-06-06T15:18:24.049000309Z   - face_image_data provided: False
+2025-06-06T15:18:24.049004769Z   - PULID_AVAILABLE: True
+2025-06-06T15:18:24.049009159Z 🔄 检测到realistic模型 + 人脸一致性请求，尝试从源图像提取人脸...
+2025-06-06T15:18:24.049014079Z ✅ 使用源图像作为人脸参考
+2025-06-06T15:18:24.049018459Z ✅ PuLID模块导入成功
+2025-06-06T15:18:24.049313108Z 🖼️ 生成图生图 1/1 (种子: 3692232474)
+2025-06-06T15:18:24.049333568Z 🎯 使用PuLID人脸一致性生成第1张图像...
+2025-06-06T15:18:24.049408628Z 📏 Prompt analysis: 788 chars, ~165 tokens (improved estimation)
+2025-06-06T15:18:24.049476478Z 📝 Long prompt optimization:
+2025-06-06T15:18:24.049490808Z    CLIP prompt: ~61 words → 74 tokens (safe truncation)
+2025-06-06T15:18:24.049495968Z    T5 prompt: ~165 tokens (full prompt)
+2025-06-06T15:18:24.049500838Z 📝 PuLID FLUX长prompt处理:
+2025-06-06T15:18:24.049507308Z    CLIP prompt: 339 chars
+2025-06-06T15:18:24.049512368Z    T5 prompt: 788 chars
+2025-06-06T15:18:24.049517608Z ✅ PuLID使用长prompt处理，避免77token截断
+2025-06-06T15:18:24.049527628Z 🔄 初始化修复版PuLID pipeline...
+2025-06-06T15:18:24.051332005Z 🚀 创建FLUX PuLID管道...
+2025-06-06T15:18:24.051352635Z 🚀 创建FLUX PuLID管道...
+2025-06-06T15:18:24.051357485Z 💡 初始化PuLID基础管道，设备: cuda:0
+2025-06-06T15:18:24.051366775Z 📊 当前onnxruntime可用providers: ['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
+2025-06-06T15:18:24.051372515Z 🚀 尝试启用CUDA加速人脸检测...
+2025-06-06T15:18:24.214205743Z Applied providers: ['CUDAExecutionProvider', 'CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}, 'CUDAExecutionProvider': {'sdpa_kernel': '0', 'use_tf32': '1', 'fuse_conv_bias': '0', 'prefer_nhwc': '0', 'tunable_op_max_tuning_duration_ms': '0', 'enable_skip_layer_norm_strict_mode': '0', 'tunable_op_tuning_enable': '0', 'tunable_op_enable': '0', 'use_ep_level_unified_stream': '0', 'device_id': '0', 'has_user_compute_stream': '0', 'gpu_external_empty_cache': '0', 'cudnn_conv_algo_search': 'EXHAUSTIVE', 'cudnn_conv1d_pad_to_nc1d': '0', 'gpu_mem_limit': '18446744073709551615', 'gpu_external_alloc': '0', 'gpu_external_free': '0', 'arena_extend_strategy': 'kNextPowerOfTwo', 'do_copy_in_default_stream': '1', 'enable_cuda_graph': '0', 'user_compute_stream': '0', 'cudnn_conv_use_max_workspace': '1'}}
+2025-06-06T15:18:24.318223324Z find model: /root/.insightface/models/buffalo_l/1k3d68.onnx landmark_3d_68 ['None', 3, 192, 192] 0.0 1.0
+2025-06-06T15:18:24.340048443Z Applied providers: ['CUDAExecutionProvider', 'CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}, 'CUDAExecutionProvider': {'sdpa_kernel': '0', 'use_tf32': '1', 'fuse_conv_bias': '0', 'prefer_nhwc': '0', 'tunable_op_max_tuning_duration_ms': '0', 'enable_skip_layer_norm_strict_mode': '0', 'tunable_op_tuning_enable': '0', 'tunable_op_enable': '0', 'use_ep_level_unified_stream': '0', 'device_id': '0', 'has_user_compute_stream': '0', 'gpu_external_empty_cache': '0', 'cudnn_conv_algo_search': 'EXHAUSTIVE', 'cudnn_conv1d_pad_to_nc1d': '0', 'gpu_mem_limit': '18446744073709551615', 'gpu_external_alloc': '0', 'gpu_external_free': '0', 'arena_extend_strategy': 'kNextPowerOfTwo', 'do_copy_in_default_stream': '1', 'enable_cuda_graph': '0', 'user_compute_stream': '0', 'cudnn_conv_use_max_workspace': '1'}}
+2025-06-06T15:18:24.343181309Z find model: /root/.insightface/models/buffalo_l/2d106det.onnx landmark_2d_106 ['None', 3, 192, 192] 0.0 1.0
+2025-06-06T15:18:24.364492938Z Applied providers: ['CUDAExecutionProvider', 'CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}, 'CUDAExecutionProvider': {'sdpa_kernel': '0', 'use_tf32': '1', 'fuse_conv_bias': '0', 'prefer_nhwc': '0', 'tunable_op_max_tuning_duration_ms': '0', 'enable_skip_layer_norm_strict_mode': '0', 'tunable_op_tuning_enable': '0', 'tunable_op_enable': '0', 'use_ep_level_unified_stream': '0', 'device_id': '0', 'has_user_compute_stream': '0', 'gpu_external_empty_cache': '0', 'cudnn_conv_algo_search': 'EXHAUSTIVE', 'cudnn_conv1d_pad_to_nc1d': '0', 'gpu_mem_limit': '18446744073709551615', 'gpu_external_alloc': '0', 'gpu_external_free': '0', 'arena_extend_strategy': 'kNextPowerOfTwo', 'do_copy_in_default_stream': '1', 'enable_cuda_graph': '0', 'user_compute_stream': '0', 'cudnn_conv_use_max_workspace': '1'}}
+2025-06-06T15:18:24.364540598Z find model: /root/.insightface/models/buffalo_l/det_10g.onnx detection [1, 3, '?', '?'] 127.5 128.0
+2025-06-06T15:18:24.376119082Z Applied providers: ['CUDAExecutionProvider', 'CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}, 'CUDAExecutionProvider': {'sdpa_kernel': '0', 'use_tf32': '1', 'fuse_conv_bias': '0', 'prefer_nhwc': '0', 'tunable_op_max_tuning_duration_ms': '0', 'enable_skip_layer_norm_strict_mode': '0', 'tunable_op_tuning_enable': '0', 'tunable_op_enable': '0', 'use_ep_level_unified_stream': '0', 'device_id': '0', 'has_user_compute_stream': '0', 'gpu_external_empty_cache': '0', 'cudnn_conv_algo_search': 'EXHAUSTIVE', 'cudnn_conv1d_pad_to_nc1d': '0', 'gpu_mem_limit': '18446744073709551615', 'gpu_external_alloc': '0', 'gpu_external_free': '0', 'arena_extend_strategy': 'kNextPowerOfTwo', 'do_copy_in_default_stream': '1', 'enable_cuda_graph': '0', 'user_compute_stream': '0', 'cudnn_conv_use_max_workspace': '1'}}
+2025-06-06T15:18:24.378672688Z find model: /root/.insightface/models/buffalo_l/genderage.onnx genderage ['None', 3, 96, 96] 0.0 1.0
+2025-06-06T15:18:24.521225284Z Applied providers: ['CUDAExecutionProvider', 'CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}, 'CUDAExecutionProvider': {'sdpa_kernel': '0', 'use_tf32': '1', 'fuse_conv_bias': '0', 'prefer_nhwc': '0', 'tunable_op_max_tuning_duration_ms': '0', 'enable_skip_layer_norm_strict_mode': '0', 'tunable_op_tuning_enable': '0', 'tunable_op_enable': '0', 'use_ep_level_unified_stream': '0', 'device_id': '0', 'has_user_compute_stream': '0', 'gpu_external_empty_cache': '0', 'cudnn_conv_algo_search': 'EXHAUSTIVE', 'cudnn_conv1d_pad_to_nc1d': '0', 'gpu_mem_limit': '18446744073709551615', 'gpu_external_alloc': '0', 'gpu_external_free': '0', 'arena_extend_strategy': 'kNextPowerOfTwo', 'do_copy_in_default_stream': '1', 'enable_cuda_graph': '0', 'user_compute_stream': '0', 'cudnn_conv_use_max_workspace': '1'}}
+2025-06-06T15:18:24.669428183Z find model: /root/.insightface/models/buffalo_l/w600k_r50.onnx recognition ['None', 3, 112, 112] 127.5 127.5
+2025-06-06T15:18:24.669470243Z set det-size: (640, 640)
+2025-06-06T15:18:24.669476143Z ✓ PuLID人脸检测模块初始化成功
+2025-06-06T15:18:24.669481023Z    使用providers: ['CUDAExecutionProvider', 'CPUExecutionProvider']
+2025-06-06T15:18:24.669486372Z    context ID: 0
+2025-06-06T15:18:24.669491432Z    检测尺寸: 640x640
+2025-06-06T15:18:24.669495732Z 🔧 初始化修复版PuLID-FLUX IDFormer:
+2025-06-06T15:18:24.669499923Z    输入维度: 512 (InsightFace输出)
+2025-06-06T15:18:24.669504083Z    输出维度: 768
+2025-06-06T15:18:24.669508283Z    token数量: 16
+2025-06-06T15:18:24.669512403Z    层数: 4
+2025-06-06T15:18:24.669516523Z 🔧 创建官方IDFormer (兼容模式):
+2025-06-06T15:18:24.669520772Z      警告: 官方IDFormer期望1280维输入(antelopev2)，当前输入512维
+2025-06-06T15:18:24.669525043Z      输出维度: 768
+2025-06-06T15:18:24.669529463Z      token数量: 16
+2025-06-06T15:18:24.669533583Z      层数: 4
+2025-06-06T15:18:24.669537703Z      模式: insightface
+2025-06-06T15:18:24.669541843Z      使用完整版本
+2025-06-06T15:18:25.335682141Z      总参数数量: 150,087,680
+2025-06-06T15:18:25.335739841Z      可训练参数: 150,087,680
+2025-06-06T15:18:25.443322647Z 🔧 创建20个PerceiverAttentionCA层
+2025-06-06T15:18:28.435253625Z ✅ PuLID模块初始化完成:
+2025-06-06T15:18:28.435605725Z    IDFormer参数: 150,087,680
+2025-06-06T15:18:28.435621645Z    CA层数量: 20
+2025-06-06T15:18:28.435830844Z    CA层参数: 419,635,200
+2025-06-06T15:18:28.435867314Z ✅ FLUX PuLID管道创建成功
+2025-06-06T15:18:28.436895413Z 📥 加载PuLID权重: /runpod-volume/ipadapter/pulid_flux.safetensors
+2025-06-06T15:18:28.437330482Z 📥 加载PuLID预训练权重: /runpod-volume/ipadapter/pulid_flux.safetensors
+2025-06-06T15:18:28.437723002Z 🧹 清理GPU缓存，当前显存使用: 35.61GB
+2025-06-06T15:18:29.087471083Z 📊 分析权重文件结构...
+2025-06-06T15:18:29.087527283Z    权重文件包含 312 个参数
+2025-06-06T15:18:29.087534863Z    权重键示例: ['pulid_ca.0.norm1.bias', 'pulid_ca.0.norm1.weight', 'pulid_ca.0.norm2.bias', 'pulid_ca.0.norm2.weight', 'pulid_ca.0.to_kv.weight']
+2025-06-06T15:18:29.087543814Z    权重格式: 官方PuLID格式
+2025-06-06T15:18:29.087548974Z 🔧 加载官方PuLID权重...
+2025-06-06T15:18:29.087600303Z    pulid_ca权重: 140个
+2025-06-06T15:18:29.087623453Z    其他权重: 172个
+2025-06-06T15:18:32.077160404Z    CA权重加载结果:
+2025-06-06T15:18:32.077220034Z      成功加载: 140个参数
+2025-06-06T15:18:32.077226204Z      缺失键: 0个
+2025-06-06T15:18:32.077230544Z      多余键: 0个
+2025-06-06T15:18:32.077235624Z    ✅ pulid_ca权重加载成功
+2025-06-06T15:18:32.077240954Z ✅ PuLID预训练权重加载完成
+2025-06-06T15:18:32.124850886Z ✅ PuLID权重加载成功
+2025-06-06T15:18:32.124900936Z ✅ FLUX PuLID管道创建完成
+2025-06-06T15:18:32.124962186Z 📏 Prompt analysis: 708 chars, ~150 tokens (improved estimation)
+2025-06-06T15:18:32.124989266Z 📝 Long prompt optimization:
+2025-06-06T15:18:32.124995146Z    CLIP prompt: ~61 words → 74 tokens (safe truncation)
+2025-06-06T15:18:32.125000056Z    T5 prompt: ~150 tokens (full prompt)
+2025-06-06T15:18:32.125014586Z 📝 PuLID FLUX长prompt处理:
+2025-06-06T15:18:32.125023626Z    CLIP prompt: 339 chars
+2025-06-06T15:18:32.125029856Z    T5 prompt: 708 chars
+2025-06-06T15:18:32.125035746Z ✅ PuLID使用长prompt处理，避免77token截断
+2025-06-06T15:18:32.125040496Z 🎯 开始PuLID面部一致性生成...
+2025-06-06T15:18:32.130793898Z 🔍 开始人脸检测，图像尺寸: (512, 512, 3)
+2025-06-06T15:18:32.423174570Z ✅ 使用标准检测检测到 2 个人脸
+2025-06-06T15:18:32.423226980Z ✅ 选择最大人脸，占图像面积: 8.45%
+2025-06-06T15:18:32.423350480Z ✓ 成功检测并裁剪人脸区域: (512, 512, 3)
+2025-06-06T15:18:32.423387550Z 🎯 人脸检测方法: 标准检测
+2025-06-06T15:18:32.429104992Z 📊 Embedding统计: min=-0.137, max=0.126, norm=1.000
+2025-06-06T15:18:32.436994771Z ✅ 成功提取ID embedding，形状: torch.Size([1, 32, 768])
+2025-06-06T15:18:32.437039000Z ✅ 成功提取PuLID人脸特征: torch.Size([1, 32, 768])
+2025-06-06T15:18:32.437045170Z 🎛️ 面部特征强度: 0.6
+2025-06-06T15:18:32.437051040Z 📝 PuLID FLUX长prompt处理:
+2025-06-06T15:18:32.437055420Z    CLIP prompt: 245 chars
+2025-06-06T15:18:32.437059610Z    T5 prompt: 708 chars
+2025-06-06T15:18:32.437065470Z ✅ PuLID使用长prompt处理，避免77token截断
+2025-06-06T15:18:32.437070200Z 🎨 prompt增强: 添加了3个ID术语 (强度: 0.6)
+2025-06-06T15:18:32.437074680Z 🔧 将PuLID特征注入到FLUX注意力机制...
+2025-06-06T15:18:32.439109317Z 🎯 找到 5 个注意力层可用于PuLID注入
+2025-06-06T15:18:32.439136627Z 🔧 PuLID处理器初始化: embedding形状=torch.Size([1, 32, 768]), 权重=0.6, 保守注入模式
+2025-06-06T15:18:32.439142337Z ✅ 已将PuLID处理器注入到层: transformer_blocks.9.attn
+2025-06-06T15:18:32.439146827Z 🔧 PuLID处理器初始化: embedding形状=torch.Size([1, 32, 768]), 权重=0.6, 保守注入模式
+2025-06-06T15:18:32.439151767Z ✅ 已将PuLID处理器注入到层: transformer_blocks.10.attn
+2025-06-06T15:18:32.439156447Z 🔧 PuLID处理器初始化: embedding形状=torch.Size([1, 32, 768]), 权重=0.6, 保守注入模式
+2025-06-06T15:18:32.439160857Z ✅ 已将PuLID处理器注入到层: transformer_blocks.11.attn
+2025-06-06T15:18:32.439165547Z 🔧 PuLID处理器初始化: embedding形状=torch.Size([1, 32, 768]), 权重=0.6, 保守注入模式
+2025-06-06T15:18:32.439177187Z ✅ 已将PuLID处理器注入到层: transformer_blocks.12.attn
+2025-06-06T15:18:32.439190247Z 🔧 PuLID处理器初始化: embedding形状=torch.Size([1, 32, 768]), 权重=0.6, 保守注入模式
+2025-06-06T15:18:32.439223047Z ✅ 已将PuLID处理器注入到层: transformer_blocks.13.attn
+2025-06-06T15:18:32.439231817Z ✅ 成功注入PuLID到 5 个注意力层
+2025-06-06T15:18:32.439241447Z 🎯 使用CA层: [0, 1, 2, 3, 4]
+2025-06-06T15:18:32.439248847Z 🎨 prompt增强: 添加了3个ID术语 (强度: 0.6)
+2025-06-06T15:18:32.439258227Z ✅ PuLID注意力注入完成，开始生成...
+2025-06-06T15:18:32.439264447Z 🎨 FLUX管道使用PuLID注意力处理器 + 增强prompt进行生成
+2025-06-06T15:18:32.447847015Z Token indices sequence length is longer than the specified maximum sequence length for this model (198 > 77). Running this sequence through the model will result in indexing errors
+2025-06-06T15:18:32.448372984Z The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ["hand, and a stream of semen is visible coming from his penis, indicating recent ejaculation. his physique is well - defined, with prominent muscles on his chest and arms. the man's pubic area is clearly visible, including his scrotum and testicles., male masturbation, male focus, solo, 1 boy, masturbation, penis, nipples, testicles, cum, pectorals, masturbation, cum, cumshot, detailed facial features, natural skin texture, realistic portrait, detailed facial features, natural skin texture, realistic portrait"]
+2025-06-06T15:18:32.589038133Z 
+  0%|          | 0/20 [00:00<?, ?it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:32.610818042Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:32.612320110Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:32.613918048Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:32.615499285Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:32.848073473Z 
+  5%|▌         | 1/20 [00:00<00:03,  4.81it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:32.850388470Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:32.853475266Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:32.856809361Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:32.858917908Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.120370744Z 
+ 10%|█         | 2/20 [00:00<00:04,  4.08it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.122810981Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.125995736Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.129388022Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.131538228Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.401434773Z 
+ 15%|█▌        | 3/20 [00:00<00:04,  3.87it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.404047499Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.407473434Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.411243309Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.413548566Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.699476377Z 
+ 20%|██        | 4/20 [00:01<00:04,  3.65it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.702136594Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.705572509Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.709255674Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.711537650Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.980038447Z 
+ 25%|██▌       | 5/20 [00:01<00:04,  3.59it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.982512413Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.985692939Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.989051284Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:33.991224871Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:34.254850724Z 
+ 30%|███       | 6/20 [00:01<00:03,  3.60it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:34.257187541Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:34.260311837Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:34.263729302Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:34.265873609Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:34.544218341Z 
+ 35%|███▌      | 7/20 [00:01<00:03,  3.58it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:34.546761368Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:34.550114653Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:34.553716658Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:34.556052734Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:34.837827022Z 
+ 40%|████      | 8/20 [00:02<00:03,  3.52it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:34.840091239Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:34.843293174Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:34.846745819Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:34.848904556Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.113125209Z 
+ 45%|████▌     | 9/20 [00:02<00:03,  3.53it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.144210324Z ✅ PuLID保守注入: step 10, 影响2token, 权重0.012, 变化0.019
+2025-06-06T15:18:35.145829852Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.154301780Z ✅ PuLID保守注入: step 10, 影响2token, 权重0.012, 变化0.018
+2025-06-06T15:18:35.155735128Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.164227386Z ✅ PuLID保守注入: step 10, 影响2token, 权重0.012, 变化0.018
+2025-06-06T15:18:35.165695424Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.174952141Z ✅ PuLID保守注入: step 10, 影响2token, 权重0.012, 变化0.015
+2025-06-06T15:18:35.176656468Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.185082396Z ✅ PuLID保守注入: step 10, 影响2token, 权重0.012, 变化0.016
+2025-06-06T15:18:35.395382026Z 
+ 50%|█████     | 10/20 [00:02<00:02,  3.54it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.397716642Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.400847648Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.404206673Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.406427650Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.679391160Z 
+ 55%|█████▌    | 11/20 [00:03<00:02,  3.55it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.681893117Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.685198822Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.688733407Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.690942864Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.956397874Z 
+ 60%|██████    | 12/20 [00:03<00:02,  3.55it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.958823321Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.962018717Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.965384062Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:35.967537469Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:36.236865374Z 
+ 65%|██████▌   | 13/20 [00:03<00:01,  3.55it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:36.239191431Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:36.242346426Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:36.245724401Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:36.247849818Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:36.513207030Z 
+ 70%|███████   | 14/20 [00:03<00:01,  3.59it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:36.515549616Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:36.518704762Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:36.522064927Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:36.524257914Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:36.797595613Z 
+ 75%|███████▌  | 15/20 [00:04<00:01,  3.56it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:36.800121230Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:36.803393295Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:36.807010100Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:36.809234667Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.080929609Z 
+ 80%|████████  | 16/20 [00:04<00:01,  3.56it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.083462645Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.086767111Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.090205606Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.092453622Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.356692635Z 
+ 85%|████████▌ | 17/20 [00:04<00:00,  3.56it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.359106222Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.362305667Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.365810792Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.367999729Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.634879448Z 
+ 90%|█████████ | 18/20 [00:04<00:00,  3.58it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.637374794Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.640574169Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.643992825Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.646226061Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.915751497Z 
+ 95%|█████████▌| 19/20 [00:05<00:00,  3.58it/s]cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.947544571Z ✅ PuLID保守注入: step 20, 影响2token, 权重0.012, 变化0.019
+2025-06-06T15:18:37.949118279Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.957624637Z ✅ PuLID保守注入: step 20, 影响2token, 权重0.012, 变化0.018
+2025-06-06T15:18:37.959090805Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.967587153Z ✅ PuLID保守注入: step 20, 影响2token, 权重0.012, 变化0.017
+2025-06-06T15:18:37.969070390Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.977507579Z ✅ PuLID保守注入: step 20, 影响2token, 权重0.012, 变化0.016
+2025-06-06T15:18:37.978969386Z cross_attention_kwargs ['image_rotary_emb'] are not expected by FluxAttenProc and will be ignored.
+2025-06-06T15:18:37.987460944Z ✅ PuLID保守注入: step 20, 影响2token, 权重0.012, 变化0.016
+2025-06-06T15:18:38.130427680Z 
+100%|██████████| 20/20 [00:05<00:00,  3.53it/s]
+100%|██████████| 20/20 [00:05<00:00,  3.59it/s]
+2025-06-06T15:18:38.234380941Z ✅ PuLID生成成功！
+2025-06-06T15:18:38.234433081Z 🔄 恢复原始注意力处理器...
+2025-06-06T15:18:38.234799441Z ✅ 注意力处理器恢复完成
+2025-06-06T15:18:38.248953111Z ✅ PuLID生成成功！
+2025-06-06T15:18:38.737885482Z Uploading 276841 bytes to R2 as b8764974-19db-42da-be37-864142dd1ba2.jpg
+2025-06-06T15:18:40.511473780Z ✓ Successfully uploaded to (R2 public domain): https://pub-5a18b069cd06445889010bf8c29132d6.r2.dev/b8764974-19db-42da-be37-864142dd1ba2.jpg
+2025-06-06T15:18:40.511527760Z ✅ 图生图 1 生成成功 (使用PuLID人脸一致性) (使用LoRA: flux_nsfw): https://pub-5a18b069cd06445889010bf8c29132d6.r2.dev/b8764974-19db-42da-be37-864142dd1ba2.jpg
+2025-06-06T15:18:40.994257591Z {"requestId": "sync-1e779211-c036-44cb-9785-0758a525426a-u1", "message": "Finished.", "level": "INFO"}

@@ -52,6 +52,9 @@ ENV PYTHONPATH=/app:$PYTHONPATH
 # Create volume directories
 RUN mkdir -p /runpod-volume
 
+# Download face swap models (optional, will gracefully fail if network issues)
+RUN python download_face_swap_models.py || echo "⚠️ 模型下载失败，但容器将继续启动"
+
 # Expose port (if needed for local testing)
 EXPOSE 8000
 
