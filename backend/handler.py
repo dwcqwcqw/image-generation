@@ -57,10 +57,22 @@ try:
     if current_dir not in sys.path:
         sys.path.insert(0, current_dir)
     
-    # 检查face_swap_integration.py文件是否存在
-    face_swap_file = os.path.join(current_dir, 'face_swap_integration.py')
-    if not os.path.exists(face_swap_file):
-        raise ImportError(f"face_swap_integration.py not found at {face_swap_file}")
+    # 多个可能的文件位置
+    possible_locations = [
+        os.path.join(current_dir, 'face_swap_integration.py'),  # 同目录
+        os.path.join(os.getcwd(), 'face_swap_integration.py'),  # 工作目录
+        '/app/face_swap_integration.py',  # 容器绝对路径
+        './face_swap_integration.py'  # 相对路径
+    ]
+    
+    face_swap_file = None
+    for location in possible_locations:
+        if os.path.exists(location):
+            face_swap_file = location
+            break
+    
+    if not face_swap_file:
+        raise ImportError(f"face_swap_integration.py not found in any of these locations: {possible_locations}")
     
     print(f"🔍 Loading face swap integration from: {face_swap_file}")
     from face_swap_integration import process_face_swap_pipeline, is_face_swap_available
@@ -74,7 +86,12 @@ except ImportError as e:
     FACE_SWAP_AVAILABLE = False
     print(f"⚠️ Face swap integration not available: {e}")
     print(f"📁 Current directory: {os.path.dirname(os.path.abspath(__file__))}")
-    print(f"📁 Files in current directory: {os.listdir(os.path.dirname(os.path.abspath(__file__)))}")
+    print(f"📁 Working directory: {os.getcwd()}")
+    try:
+        print(f"📁 Files in current directory: {os.listdir(os.path.dirname(os.path.abspath(__file__)))}")
+        print(f"📁 Files in working directory: {os.listdir(os.getcwd())}")
+    except Exception as list_error:
+        print(f"📁 Could not list directory contents: {list_error}")
 except Exception as e:
     FACE_SWAP_AVAILABLE = False
     print(f"⚠️ Face swap integration error: {e}")

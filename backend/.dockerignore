@@ -1,0 +1,52 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+
+# Logs
+*.log
+logs/
+
+# Environment files (will be set via env vars)
+.env
+.env.*
+
+# Git
+.git/
+.gitignore
+
+# Documentation and tests (if any)
+README.md
+*.md
+test_*
+tests/
+
+# But explicitly ensure these critical files are included:
+# handler.py (already included by default)
+# face_swap_integration.py (already included by default)
+# start_debug.py (already included by default)
+# requirements.txt (already included by default)
+
+# Face swap dependencies (models will be mounted from volume)
+faceswap/
+
+# Large model files (will be mounted from volume)
+*.onnx
+*.pth
+*.safetensors 

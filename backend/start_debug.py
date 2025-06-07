@@ -133,6 +133,43 @@ def check_model_paths():
         else:
             print(f"✗ {path} (not found)")
 
+def check_face_swap_files():
+    """Check if face swap integration files exist"""
+    print_section("FACE SWAP FILES CHECK")
+    
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    working_dir = os.getcwd()
+    
+    print(f"Current script directory: {current_dir}")
+    print(f"Working directory: {working_dir}")
+    
+    # List all Python files in current directory
+    print(f"\nPython files in current directory ({current_dir}):")
+    try:
+        for file in os.listdir(current_dir):
+            if file.endswith('.py'):
+                file_path = os.path.join(current_dir, file)
+                file_size = os.path.getsize(file_path)
+                print(f"  - {file} ({file_size} bytes)")
+    except Exception as e:
+        print(f"  Error listing directory: {e}")
+    
+    # Check specific face swap integration file locations
+    possible_locations = [
+        os.path.join(current_dir, 'face_swap_integration.py'),
+        os.path.join(working_dir, 'face_swap_integration.py'),
+        '/app/face_swap_integration.py',
+        './face_swap_integration.py'
+    ]
+    
+    print(f"\nChecking face_swap_integration.py in possible locations:")
+    for location in possible_locations:
+        if os.path.exists(location):
+            file_size = os.path.getsize(location)
+            print(f"  ✓ Found at {location} ({file_size} bytes)")
+        else:
+            print(f"  ✗ Not found at {location}")
+
 def test_imports():
     """Test critical imports for the handler"""
     print_section("CRITICAL IMPORTS TEST")
@@ -174,6 +211,7 @@ def main():
         check_python_packages()
         check_torch_cuda()
         check_model_paths()
+        check_face_swap_files()
         test_imports()
         
         print_section("STARTING MAIN HANDLER")
