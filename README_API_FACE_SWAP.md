@@ -1,163 +1,222 @@
-# 外部API换脸功能集成说明
+# 外部API换脸功能集成指南
 
 ## 概述
 
-本系统已升级为使用外部RunPod Serverless API进行换脸处理，替代之前的本地换脸功能。这种方式具有以下优势：
+本项目已集成外部RunPod Serverless API进行换脸处理，避免了本地CUDA兼容性问题，提供了更稳定和高效的换脸功能。
 
-- ✅ **无需本地CUDA依赖**：避免复杂的ONNX Runtime GPU配置问题
-- ✅ **高性能处理**：专用的换脸服务器提供更快速度和更高质量
-- ✅ **简化部署**：减少本地依赖和模型文件需求
-- ✅ **稳定性提升**：专门优化的换脸服务，避免版本兼容性问题
+## ✅ 最新更新
+
+### 2025-06-07 修复
+
+- ✅ **支持URL和Base64两种结果格式**: API现在可以返回图像URL或Base64编码数据
+- ✅ **自动格式检测**: 系统自动检测API返回的是URL还是Base64格式
+- ✅ **智能处理**: URL格式直接下载，Base64格式直接解码
+- ✅ **增强调试**: 添加详细的结果类型和内容日志
+- ✅ **错误处理**: 改进错误处理和回退机制
+
+### 参数格式修复
+
+- ✅ **process_type参数**: 从 `"single_image"` 修正为 `"single-image"`
+- ✅ **API认证**: 修复401认证失败问题，支持自动环境变量配置
+
+## 特性对比
+
+| 特性 | 本地换脸 | 外部API换脸 |
+|------|----------|-------------|
+| 依赖复杂度 | 高 (CUDA、InsightFace、ONNX) | 低 (仅HTTP请求) |
+| 部署难度 | 困难 (环境兼容性问题) | 简单 |
+| 处理速度 | 慢 (CPU回退) | 快 (专用GPU) |
+| 稳定性 | 中等 | 高 |
+| 内存占用 | 高 | 低 |
+| 结果格式 | PIL图像对象 | **URL/Base64 (自动检测)** |
+
+## 配置指南
+
+### 1. RunPod Serverless部署配置
+
+如果您使用RunPod Serverless部署，有两种方法配置API密钥：
+
+#### 方法1：通过runpod.toml配置文件（推荐）
+
+项目根目录的`runpod.toml`文件已经预配置了环境变量：
+
+```toml
+[runtime.env]
+# RunPod API配置 - 外部换脸API
+RUNPOD_API_KEY = "${RUNPOD_API_KEY}"
+FACE_SWAP_ENDPOINT = "${FACE_SWAP_ENDPOINT}"
+```
+
+#### 方法2：自动设置（启动时检查）
+
+启动脚本`backend/start_debug.py`会自动检查并设置API密钥：
+
+```python
+def check_and_set_env_vars():
+    """检查和设置关键环境变量"""
+    runpod_api_key = os.getenv("RUNPOD_API_KEY", "")
+    if not runpod_api_key:
+        preset_api_key = "your_runpod_api_key_here"  # 请在部署时设置正确的API密钥
+        os.environ["RUNPOD_API_KEY"] = preset_api_key
+```
+
+### 2. 本地开发环境配置
+
+```bash
+# 设置环境变量
+export RUNPOD_API_KEY="your_runpod_api_key_here"
+export FACE_SWAP_ENDPOINT="https://api.runpod.ai/v2/sbta9w9yx2cc1e"
+```
+
+## API调用格式
+
+### 请求格式
+
+```json
+{
+  "input": {
+    "process_type": "single-image",
+    "source_file": "https://example.com/source.jpg",
+    "target_file": "https://example.com/target.jpg",
+    "options": {
+      "mouth_mask": true,
+      "use_face_enhancer": true
+    }
+  }
+}
+```
+
+### 响应格式
+
+系统现在支持两种响应格式：
+
+#### 格式1：URL格式
+```json
+{
+  "status": "COMPLETED",
+  "output": {
+    "result": "https://example.com/result.jpg"
+  }
+}
+```
+
+#### 格式2：Base64格式
+```json
+{
+  "status": "COMPLETED",
+  "output": {
+    "result": "iVBORw0KGgoAAAANSUhEUgAAAA..."
+  }
+}
+```
 
 ## 系统架构
 
 ```
 用户上传参考图像 + 输入提示词
-          ↓
+         ↓
     文生图生成初始图像
-          ↓
-    上传图像到R2存储（获得临时URL）
-          ↓
+         ↓
+    上传图像到R2存储获取URL
+         ↓
     调用外部RunPod换脸API
-          ↓
-    接收Base64编码的换脸结果
-          ↓
-    上传最终结果到R2并返回给用户
+         ↓
+    【新增】自动检测结果格式
+    ├─ URL格式 → 直接下载图像
+    └─ Base64格式 → 解码图像数据
+         ↓
+    上传最终结果到R2存储
+         ↓
+    返回公共访问URL
 ```
 
-## 环境变量配置
+## 测试和验证
 
-在RunPod部署时，需要设置以下环境变量：
+### 运行格式检测测试
 
 ```bash
-# RunPod换脸API配置
-RUNPOD_API_KEY=your_runpod_api_key_here
-FACE_SWAP_ENDPOINT=https://api.runpod.ai/v2/sbta9w9yx2cc1e
-```
-
-### 获取API密钥
-
-1. 登录RunPod控制台
-2. 进入API设置页面
-3. 生成或复制API密钥
-4. 将密钥设置为环境变量`RUNPOD_API_KEY`
-
-## 代码修改详情
-
-### 主要文件修改
-
-#### `backend/handler.py`
-
-1. **新增API换脸函数**:
-   - `upload_image_to_temp_url()` - 上传图像到临时URL
-   - `call_face_swap_api()` - 调用外部换脸API
-   - `process_face_swap_api_pipeline()` - API换脸处理管道
-
-2. **修改换脸流程**:
-   - `_process_realistic_with_face_swap()` 函数现在使用API而非本地处理
-   - 移除对本地InsightFace和GFPGAN依赖的强制要求
-
-3. **环境变量配置**:
-   ```python
-   RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY", "")
-   FACE_SWAP_ENDPOINT = os.getenv("FACE_SWAP_ENDPOINT", "https://api.runpod.ai/v2/sbta9w9yx2cc1e")
-   ```
-
-## API调用流程
-
-### 1. 任务提交
-
-```python
-submit_payload = {
-    "input": {
-                 "process_type": "single-image",
-        "source_file": source_image_url,  # 用户上传的参考图像
-        "target_file": target_image_url,  # 生成的图像
-        "options": {
-            "mouth_mask": True,
-            "use_face_enhancer": True
-        }
-    }
-}
-```
-
-### 2. 状态轮询
-
-系统会自动轮询任务状态，最多等待5分钟：
-
-- `IN_QUEUE` - 任务排队中
-- `IN_PROGRESS` - 任务处理中
-- `COMPLETED` - 任务完成
-- `FAILED` - 任务失败
-
-### 3. 结果处理
-
-API返回Base64编码的图像，系统会：
-1. 解码Base64数据
-2. 转换为PIL Image对象
-3. 上传到R2存储
-4. 返回最终URL给用户
-
-## 测试验证
-
-运行测试脚本验证API功能：
-
-```bash
-# 设置环境变量
-export RUNPOD_API_KEY="your_api_key"
-export FACE_SWAP_ENDPOINT="https://api.runpod.ai/v2/sbta9w9yx2cc1e"
-
-# 运行测试
-python3 test_api_face_swap.py
+python test_url_format.py
 ```
 
 期望输出：
 ```
-=== 外部API换脸功能测试 ===
-🔑 API密钥: rpa_YT0BFB...N4ZQ1tdxlb
-🌐 API端点: https://api.runpod.ai/v2/sbta9w9yx2cc1e
-🔍 测试API端点可用性...
-✅ API端点可达
-✅ API换脸功能测试通过!
-💡 系统已准备好使用外部API进行换脸处理
+🧪 API换脸结果格式处理测试
+==================================================
+=== URL格式检测测试 ===
+✅ HTTPS URL: True (期望: True)
+✅ HTTP URL: True (期望: True)
+✅ Base64数据: False (期望: False)
+
+=== URL下载测试 ===
+✅ 下载成功，状态码: 200
+✅ 图像解析成功: (239, 178) 像素
+
+=== Base64处理测试 ===
+✅ Base64解码成功: (1, 1) 像素
+
+🎯 总体测试结果: ✅ 全部通过
 ```
 
-## 错误处理
+### 运行API认证测试
 
-系统包含完善的错误处理机制：
+```bash
+python fix_api_auth.py
+```
 
-1. **API不可用时**：返回原始生成图像
-2. **网络超时**：自动重试和回退
-3. **任务失败**：记录详细错误信息并回退到原始图像
-4. **Base64解码失败**：安全回退到原始图像
+期望输出：
+```
+=== API配置检查 ===
+🔑 API密钥长度: 45 字符
+✅ API认证测试通过
+```
 
-## 性能对比
+## 故障排除
 
-| 指标 | 本地换脸 | API换脸 |
-|------|----------|---------|
-| 依赖复杂度 | 高（CUDA、ONNX、InsightFace） | 低（仅HTTP请求） |
-| 部署难度 | 困难 | 简单 |
-| 处理速度 | 慢（CPU回退） | 快（专用GPU） |
-| 内存占用 | 高（模型加载） | 低（无本地模型） |
-| 稳定性 | 中等（版本兼容） | 高（专门优化） |
+### 常见问题
 
-## 兼容性说明
+1. **401认证失败**
+   - 检查 `RUNPOD_API_KEY` 环境变量是否正确设置
+   - 运行 `python fix_api_auth.py` 进行诊断
 
-- 保留了原有的本地换脸代码作为备用
-- 前端调用接口保持不变
-- 结果格式完全兼容
-- 添加了`faceSwapMethod: 'external_api'`字段用于标识
+2. **Base64解码失败**
+   - ✅ **已修复**: 系统现在自动检测URL格式并直接下载
+   - 支持两种格式：URL和Base64
 
-## 部署建议
+3. **process_type错误**
+   - ✅ **已修复**: 使用正确的 `"single-image"` 格式
 
-1. **优先使用API换脸**：新部署建议直接使用API版本
-2. **环境变量必须设置**：确保`RUNPOD_API_KEY`正确配置
-3. **网络连接稳定**：确保RunPod服务器到API端点的网络连接良好
-4. **监控API额度**：注意RunPod API的使用额度和计费
+4. **任务提交失败**
+   - 检查API端点是否正确
+   - 验证网络连接和防火墙设置
 
-## 后续优化
+### 调试日志示例
 
-1. **缓存机制**：对相同参考图像的重复请求进行缓存
-2. **批处理支持**：一次性处理多张图像
-3. **质量参数调优**：根据用户需求调整换脸质量参数
-4. **备用端点**：配置多个API端点实现高可用 
+成功的API调用会显示：
+```
+📤 提交换脸任务...
+✅ 任务已提交，ID: abc123-def456-ghi789
+🔄 查询任务状态 (1/60)...
+📋 任务状态: IN_QUEUE
+📋 任务状态: IN_PROGRESS  
+📋 任务状态: COMPLETED
+✅ 换脸API调用成功
+🔍 结果类型: <class 'str'>
+🔍 结果内容: https://example.com/result.jpg
+📥 下载换脸结果图像: https://example.com/result.jpg
+✅ API换脸成功完成 (URL)
+```
+
+## 安全注意事项
+
+- 🚨 请勿将API密钥提交到公共代码仓库
+- 🔒 使用环境变量或安全的配置管理方式
+- 🔄 定期轮换API密钥以提高安全性
+- 🌐 确保R2存储桶的访问权限配置正确
+
+## 技术支持
+
+如需技术支持，请提供：
+1. 完整的错误日志
+2. API配置信息（隐藏敏感信息）
+3. 重现步骤
+4. 环境信息（Python版本、依赖库版本等） 
