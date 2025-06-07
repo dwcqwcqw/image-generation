@@ -27,14 +27,9 @@ compel>=2.0.2,<3.0.0
 controlnet-aux>=0.0.6,<0.1.0
 opencv-python>=4.10.0
 
-# Face swap dependencies (optional, install if available)
+# Face swap dependencies (will be installed if possible)
 insightface>=0.7.3
 onnxruntime-gpu>=1.16.0
-# 暂时注释GFPGAN相关依赖，因为安装可能有兼容性问题
-# gfpgan>=1.3.8
-# basicsr>=1.4.2
-# facexlib>=0.3.0
-# retinaface-pytorch>=0.0.2
 
 # Pin specific versions to avoid conflicts
 huggingface-hub>=0.20.0,<0.26.0

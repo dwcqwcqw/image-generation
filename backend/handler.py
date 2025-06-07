@@ -57,9 +57,10 @@ except ImportError:
 def add_faceswap_path():
     """动态添加faceswap模块路径"""
     possible_paths = [
+        "/runpod-volume/faceswap",  # RunPod主要路径
         "/Users/baileyli/Documents/AI同志项目/image generation/faceswap",  # 本地开发
         "/app/faceswap",  # Docker容器
-        "/workspace/faceswap",  # RunPod
+        "/workspace/faceswap",  # RunPod备用
         "../faceswap",  # 相对路径
         "./faceswap"  # 当前目录
     ]
@@ -107,12 +108,33 @@ except ImportError:
     OPENCV_AVAILABLE = False
     print("⚠️ OpenCV not available - face swap will be disabled")
 
-# 模型路径配置
-FACE_SWAP_MODELS_CONFIG = {
-    "face_swap": "/runpod-volume/faceswap/inswapper_128_fp16.onnx",
-    "face_enhance": "/runpod-volume/faceswap/GFPGANv1.4.pth", 
-    "face_analysis": "/runpod-volume/faceswap/buffalo_l"
-}
+# 模型路径配置 - 动态查找
+def get_face_swap_models_config():
+    """动态获取换脸模型路径配置"""
+    possible_base_paths = [
+        "/runpod-volume/faceswap",
+        "/workspace/faceswap", 
+        "/app/faceswap",
+        "./models/faceswap",
+        "./faceswap"
+    ]
+    
+    for base_path in possible_base_paths:
+        if os.path.exists(base_path):
+            return {
+                "face_swap": os.path.join(base_path, "inswapper_128_fp16.onnx"),
+                "face_enhance": os.path.join(base_path, "GFPGANv1.4.pth"), 
+                "face_analysis": os.path.join(base_path, "buffalo_l")
+            }
+    
+    # 默认返回RunPod路径（即使不存在，用于错误提示）
+    return {
+        "face_swap": "/runpod-volume/faceswap/inswapper_128_fp16.onnx",
+        "face_enhance": "/runpod-volume/faceswap/GFPGANv1.4.pth", 
+        "face_analysis": "/runpod-volume/faceswap/buffalo_l"
+    }
+
+FACE_SWAP_MODELS_CONFIG = get_face_swap_models_config()
 
 # 全局模型缓存
 _face_analyser = None
@@ -294,16 +316,45 @@ def process_face_swap_pipeline(generated_image, source_image):
 
 def is_face_swap_available():
     """检查换脸功能是否可用"""
-    if not INSIGHTFACE_AVAILABLE or not OPENCV_AVAILABLE:
+    print("🔍 检查换脸功能可用性...")
+    
+    # 检查依赖
+    if not INSIGHTFACE_AVAILABLE:
+        print("❌ InsightFace库不可用")
         return False
     
-    # 检查模型文件
-    for model_type, path in FACE_SWAP_MODELS_CONFIG.items():
-        if not os.path.exists(path):
-            print(f"❌ Missing model: {model_type} at {path}")
-            return False
+    if not OPENCV_AVAILABLE:
+        print("❌ OpenCV库不可用")
+        return False
+        
+    print("✅ 换脸依赖库检查通过")
     
-    return True
+    # 检查模型文件
+    print("🔍 检查换脸模型文件...")
+    all_models_exist = True
+    for model_type, path in FACE_SWAP_MODELS_CONFIG.items():
+        if os.path.exists(path):
+            print(f"✅ 模型存在: {model_type} at {path}")
+        else:
+            print(f"❌ 模型缺失: {model_type} at {path}")
+            all_models_exist = False
+    
+    if not all_models_exist:
+        # 额外检查：寻找可能的模型位置
+        print("🔍 搜索可能的模型位置...")
+        search_paths = ["/runpod-volume", "/workspace", "/app", "./models"]
+        for search_path in search_paths:
+            if os.path.exists(search_path):
+                print(f"📁 检查目录: {search_path}")
+                try:
+                    for root, dirs, files in os.walk(search_path):
+                        for file in files:
+                            if any(keyword in file.lower() for keyword in ["inswapper", "buffalo", "gfpgan"]):
+                                print(f"  🔍 找到相关文件: {os.path.join(root, file)}")
+                except Exception as e:
+                    print(f"  ❌ 搜索失败: {e}")
+    
+    return all_models_exist
 
 # 初始化换脸功能
 try:

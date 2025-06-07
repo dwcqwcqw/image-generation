@@ -43,6 +43,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --force-reinstall "numpy>=1.24.0,<2.0"
 
+# Install face swap dependencies separately (allows graceful failure)
+RUN pip install insightface onnxruntime-gpu || echo "⚠️ 换脸依赖安装失败，将在运行时尝试"
+
 # Copy application code
 COPY . .
 
